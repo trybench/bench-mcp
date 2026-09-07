@@ -1,0 +1,36 @@
+{
+  "name": "@trybench/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Bench — evaluate and optimize your LLM prompts from any MCP client",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bench-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "msw": "^2.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.0"
+  }
+}
