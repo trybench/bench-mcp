@@ -31,6 +31,16 @@ export function registerConnectTools(server: McpServer, context: ToolContext): v
   });
 
   registerTool(server, context, {
+    name: "bench_connect_github",
+    title: "Connect a GitHub account",
+    description:
+      "Get the link for connecting a GitHub account to Bench, and choosing which repositories it may read. Use this when bench_connection_status reports no connection, or a scan fails because no installation was found — give the user the returned URL and ask them to come back once they have finished.\n\nThe authorization itself happens on GitHub and cannot be done for them: granting read access to source code is deliberately a human action.",
+    inputSchema: noInput,
+    readOnly: true,
+    handler: async (_args, ctx) => ctx.client.request("/api/github/install-url"),
+  });
+
+  registerTool(server, context, {
     name: "bench_list_repos",
     title: "List repositories",
     description:

@@ -80,12 +80,13 @@ describe("tool surface", () => {
   // GET /api/evaluation-runs/{id} to bench-api earned bench_get_evaluation
   // its own tool, where the plan had folded single-run polling into
   // bench_list_evaluations.
-  it("exposes exactly the seventeen agreed tools", async () => {
+  it("exposes exactly the eighteen agreed tools", async () => {
     const client = await connect(api);
     const { tools } = await client.listTools();
 
     expect(tools.map((t) => t.name).sort()).toEqual([
       "bench_cancel_evaluation",
+      "bench_connect_github",
       "bench_connection_status",
       "bench_get_baseline",
       "bench_get_eval_benchmark",
@@ -351,3 +352,21 @@ describe("error translation", () => {
     expect(resultText(result as never)).toContain("could not reach bench-api");
   });
 });
+
+describe("connecting GitHub", () => {
+  // A disconnected account used to be a dead end: the agent could report
+  // "not connected" but had nothing to offer next.
+  it("hands back the install link so a disconnected account has a next step", async () => {
+    api.on("GET", "/api/github/install-url", {
+      url: "https://github.com/apps/bench-staging/installations/new",
+    });
+    const client = await connect(api);
+
+    const result = await client.callTool({ name: "bench_connect_github", arguments: {} });
+
+    expect(api.calls[0]?.url).toBe("/api/github/install-url");
+    expect(resultJson(result as never)).toMatchObject({
+      url: "https://github.com/apps/bench-staging/installations/new",
+    });
+  });
+})
