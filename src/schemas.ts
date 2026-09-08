@@ -133,6 +133,14 @@ export const openPromptPrInput = {
     .describe("Files to change. Each entry replaces the file's entire content."),
 };
 
+export const activateInstallationInput = {
+  installation_id: z
+    .number()
+    .int()
+    .positive()
+    .describe("GitHub installation id, from bench_connection_status."),
+};
+
 /** Narrow helper for tools that take no arguments. */
 export const noInput = {} as const;
 
