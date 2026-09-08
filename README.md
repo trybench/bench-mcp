@@ -112,6 +112,29 @@ Per-stage control — generating a business context, a benchmark, a baseline or 
 
 There is also no tool to trigger the recommend stage: bench-api runs it only as part of an evaluation and exposes no endpoint to invoke it directly.
 
+## Hosted mode
+
+The same binary serves many users over HTTP instead of stdio:
+
+```bash
+BENCH_MCP_TRANSPORT=http PORT=8080 node dist/index.js
+```
+
+The difference is tenancy. Over stdio there is one user per process and the key comes from `BENCH_API_KEY`. Over HTTP the server is multi-tenant: each client supplies its own key in the `Authorization` header at connect time, and every session gets its own isolated server bound to that credential. There is no fallback key — an unauthenticated connection is refused, never served as somebody else.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /mcp` | Initialize a session, and send requests |
+| `GET /mcp` | Server-sent event stream for an open session |
+| `DELETE /mcp` | End a session |
+| `GET /healthz` | Health check (unauthenticated; reports open session count) |
+
+Idle sessions are swept after 30 minutes. Clients do not reliably disconnect — the SDK's `close()` sends no DELETE, and crashed clients send nothing — so without expiry every abandoned session would hold a user's API key in memory for the life of the process.
+
+Set `BENCH_MCP_ALLOWED_HOSTS` in production to enable DNS-rebinding protection.
+
+**Not yet wired:** OAuth. The MCP spec's answer for a hosted server is OAuth 2.1, so users click "connect" rather than pasting a key. Hosted mode currently takes the same bearer key as stdio; OAuth is tracked separately.
+
 ## Development
 
 ```bash
