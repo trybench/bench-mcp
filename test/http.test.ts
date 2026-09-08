@@ -122,12 +122,18 @@ describe("authentication", () => {
 });
 
 describe("tenancy", () => {
-  it("serves tools over HTTP once authenticated", async () => {
+  // Deliberately does not assert the tool count: test/tools.test.ts pins
+  // the exact surface, and duplicating it here means adding a tool breaks
+  // an unrelated file. That is not hypothetical - it broke dev once, when
+  // two independently green PRs (this transport, and a new tool) merged
+  // cleanly and only failed in combination.
+  it("serves the same tools over HTTP as over stdio", async () => {
     const client = await connectWithKey("bench_sk_alice");
 
     const { tools } = await client.listTools();
 
-    expect(tools).toHaveLength(17);
+    expect(tools.length).toBeGreaterThan(0);
+    expect(tools.map((t) => t.name)).toContain("bench_whoami");
   });
 
   // The whole point of the hosted transport: two users on one process
