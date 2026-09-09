@@ -135,7 +135,15 @@ Idle sessions are swept after 30 minutes. Clients do not reliably disconnect —
 
 Set `BENCH_MCP_ALLOWED_HOSTS` in production to enable DNS-rebinding protection.
 
-**Not yet wired:** OAuth. The MCP spec's answer for a hosted server is OAuth 2.1, so users click "connect" rather than pasting a key. Hosted mode currently takes the same bearer key as stdio; OAuth is tracked separately.
+### OAuth
+
+Set `BENCH_MCP_AUTHKIT_DOMAIN` and `BENCH_MCP_RESOURCE_URL` and the server also accepts OAuth access tokens, so a user can connect by authorizing in a browser instead of pasting a key. API keys keep working — OAuth is how a person connects, keys remain the scripted path.
+
+bench-mcp is an OAuth *resource server* only: WorkOS AuthKit issues the tokens, and this server publishes where to get one (`/.well-known/oauth-protected-resource`, RFC 9728) and verifies the ones it receives. A token is accepted only if it was issued **for this server** (RFC 8707 audience binding) — without that check, a token minted for another AuthKit-protected resource would be replayable here.
+
+The verified token is then **exchanged** at bench-api for a separate, short-lived bench-api credential, which is what tool calls actually use. It is never forwarded as-is: the spec forbids passing the client's token to an upstream API, since that token is audienced for this server and bench-api would be honouring a credential never issued for it.
+
+Leaving either variable unset disables OAuth entirely, which is correct for stdio: the spec says stdio servers should take credentials from the environment rather than doing OAuth at all.
 
 ## Development
 
