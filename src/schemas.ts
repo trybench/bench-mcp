@@ -100,6 +100,26 @@ export const runIdInput = {
   run_id: z.number().int().positive().describe("Evaluation run id, from bench_start_evaluation."),
 };
 
+export const rerunEvaluationInput = {
+  ...runIdInput,
+  single_prompt: z
+    .boolean()
+    .optional()
+    .describe(
+      "Re-run only this prompt rather than every prompt in the original benching session.",
+    ),
+  generate_context: z
+    .boolean()
+    .optional()
+    .describe(
+      "Regenerate the business context as part of the rerun. Needed when the original run was cancelled before its context was stored.",
+    ),
+  context_doc: z
+    .string()
+    .optional()
+    .describe("Plain-text business context, used only with generate_context."),
+};
+
 export const submitReviewInput = {
   ...runIdInput,
   test_cases: z

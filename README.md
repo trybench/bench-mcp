@@ -92,6 +92,7 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 | `bench_list_evaluations` | Recent runs |
 | `bench_get_eval_benchmark` | The rubric and test cases |
 | `bench_submit_run_review` | Release the review gate |
+| `bench_rerun_evaluation` | Re-score a prompt after changing it — unchanged stages are reused and free |
 | `bench_cancel_evaluation` | Stop a run |
 
 **Results** — free
