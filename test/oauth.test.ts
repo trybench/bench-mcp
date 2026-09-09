@@ -126,6 +126,7 @@ describe("protected resource metadata", () => {
       resource: RESOURCE_URL,
       authorization_servers: [authkitDomain],
       bearer_methods_supported: ["header"],
+      scopes_supported: ["openid", "profile", "email"],
     });
   });
 
@@ -223,6 +224,7 @@ describe("configuration", () => {
       resource: "https://mcp.example.com",
       authorization_servers: ["https://x.authkit.app"],
       bearer_methods_supported: ["header"],
+      scopes_supported: ["openid", "profile", "email"],
     });
   });
 });
@@ -294,5 +296,26 @@ describe("token exchange", () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: { message?: string } };
     expect(body.error?.message).toContain("Upgrade to Growth");
+  });
+});
+
+
+describe("scope advertisement", () => {
+  // The bug this fixes: without scopes_supported a client omits the scope
+  // parameter entirely, the authorization server issues a token with no
+  // email claim, and the exchange rejects it — after the user has already
+  // signed in successfully, which makes it look like an auth failure when
+  // authentication actually worked.
+  it("asks for email, which the exchange needs to identify the account", async () => {
+    const res = await fetch(new URL("/.well-known/oauth-protected-resource", mcpUrl));
+    const doc = (await res.json()) as { scopes_supported?: string[] };
+
+    expect(doc.scopes_supported).toContain("email");
+  });
+
+  it("also states the scopes in the challenge, which a client treats as authoritative", async () => {
+    const res = await initialize();
+
+    expect(res.headers.get("WWW-Authenticate")).toContain('scope="openid profile email"');
   });
 });
