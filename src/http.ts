@@ -6,6 +6,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import { API_KEY_PREFIX, type BaseConfig } from "./config.js";
+import {
+  type OAuthConfig,
+  PROTECTED_RESOURCE_PATH,
+  protectedResourceMetadata,
+  TokenVerifier,
+  wwwAuthenticate,
+} from "./oauth.js";
 import { createServer } from "./server.js";
 
 /**
@@ -54,6 +61,14 @@ export interface HttpServerOptions extends BaseConfig {
    * correct for a private ALB target but not for a public origin.
    */
   allowedHosts?: string[];
+  /**
+   * When set, the server also accepts OAuth access tokens from this
+   * authorization server, and advertises it at
+   * /.well-known/oauth-protected-resource. Bench API keys keep working
+   * either way — OAuth is how a user connects without handling a
+   * credential, not a replacement for scripted access.
+   */
+  oauth?: OAuthConfig;
   /** Idle session lifetime. Exposed so tests can use a short one. */
   sessionTtlMs?: number;
   /** How often to sweep for idle sessions. */
@@ -63,6 +78,7 @@ export interface HttpServerOptions extends BaseConfig {
 export function createHttpTransportServer(opts: HttpServerOptions): Server {
   const sessions = new Map<string, Session>();
   const ttlMs = opts.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+  const verifier = opts.oauth ? new TokenVerifier(opts.oauth) : undefined;
 
   function dropSession(id: string): void {
     const session = sessions.get(id);
@@ -102,6 +118,18 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // and this reveals nothing.
     if (url.pathname === "/healthz") {
       writeJson(res, 200, { status: "ok", sessions: sessions.size });
+      return;
+    }
+
+    // RFC 9728: how a client discovers where to authenticate. Served
+    // unauthenticated by definition — it is what an unauthenticated
+    // client reads first.
+    if (url.pathname === PROTECTED_RESOURCE_PATH) {
+      if (!opts.oauth) {
+        writeJson(res, 404, { error: "oauth is not enabled on this server" });
+        return;
+      }
+      writeJson(res, 200, protectedResourceMetadata(opts.oauth));
       return;
     }
 
@@ -149,36 +177,54 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
       return;
     }
 
-    const apiKey = bearerToken(req);
-    if (!apiKey) {
-      // 401 with WWW-Authenticate, so a client knows to supply a
-      // credential rather than treating this as a protocol error.
-      res.setHeader("WWW-Authenticate", 'Bearer realm="bench"');
+    // A credential is either a Bench API key or, when OAuth is enabled, an
+    // access token from the configured authorization server. The token is
+    // verified here so an invalid one fails immediately with the 401 the
+    // MCP spec requires, and is then forwarded to bench-api, which does
+    // its own authorization — bench-mcp holds no policy of its own.
+    const credential = bearerToken(req);
+    const unauthorized = (message: string): void => {
+      res.setHeader(
+        "WWW-Authenticate",
+        opts.oauth ? wwwAuthenticate(opts.oauth) : 'Bearer realm="bench"',
+      );
       writeJson(res, 401, {
         jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message:
-            "Missing Authorization header. Connect with a Bench API key generated in your account settings.",
-        },
+        error: { code: -32001, message },
         id: null,
       });
+    };
+
+    if (!credential) {
+      unauthorized(
+        opts.oauth
+          ? "Authorization required. Authenticate with Bench, or supply a Bench API key."
+          : "Missing Authorization header. Connect with a Bench API key generated in your account settings.",
+      );
       return;
     }
-    if (!apiKey.startsWith(API_KEY_PREFIX)) {
-      res.setHeader("WWW-Authenticate", 'Bearer realm="bench"');
-      writeJson(res, 401, {
-        jsonrpc: "2.0",
-        error: { code: -32001, message: `Not a Bench API key — it should start with "${API_KEY_PREFIX}".` },
-        id: null,
-      });
-      return;
+
+    if (!credential.startsWith(API_KEY_PREFIX)) {
+      if (!verifier) {
+        unauthorized(`Not a Bench API key — it should start with "${API_KEY_PREFIX}".`);
+        return;
+      }
+      try {
+        await verifier.verify(credential);
+      } catch {
+        // Deliberately not echoing the verification error: it
+        // distinguishes expired from wrong-audience from bad-signature,
+        // which is useful to an attacker and not to a client, whose only
+        // move either way is to re-authenticate.
+        unauthorized("Invalid or expired access token.");
+        return;
+      }
     }
 
     // One server per session, holding only this user's credential.
     const server = createServer({
       baseUrl: opts.baseUrl,
-      apiKey,
+      apiKey: credential,
       timeoutMs: opts.timeoutMs,
       ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
     });

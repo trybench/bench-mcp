@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { ConfigError, readBaseConfig, readPort, readStdioConfig, readTransport } from "./config.js";
 import { createHttpTransportServer } from "./http.js";
+import { readOAuthConfig } from "./oauth.js";
 import { createServer } from "./server.js";
 
 /**
@@ -20,14 +21,18 @@ async function main(): Promise<void> {
       .map((h) => h.trim())
       .filter(Boolean);
 
+    const oauth = readOAuthConfig();
     const server = createHttpTransportServer({
       ...base,
       port,
       ...(allowedHosts?.length ? { allowedHosts } : {}),
+      ...(oauth ? { oauth } : {}),
     });
 
     await new Promise<void>((resolve) => server.listen(port, resolve));
-    console.error(`bench-mcp listening on :${port} (bench-api: ${base.baseUrl})`);
+    console.error(
+      `bench-mcp listening on :${port} (bench-api: ${base.baseUrl}, auth: ${oauth ? `api keys + oauth via ${oauth.authkitDomain}` : "api keys"})`,
+    );
 
     // ECS sends SIGTERM on deregistration; close cleanly so in-flight
     // requests finish instead of being cut off.
