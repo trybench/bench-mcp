@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { listBranchesInput, noInput } from "../schemas.js";
+import { activateInstallationInput, listBranchesInput, noInput } from "../schemas.js";
 import { registerTool, type ToolContext } from "./register.js";
 
 /**
@@ -38,6 +38,18 @@ export function registerConnectTools(server: McpServer, context: ToolContext): v
     inputSchema: noInput,
     readOnly: true,
     handler: async (_args, ctx) => ctx.client.request("/api/github/install-url"),
+  });
+
+  registerTool(server, context, {
+    name: "bench_activate_installation",
+    title: "Switch which GitHub account Bench uses",
+    description:
+      "Choose which connected GitHub account Bench reads repositories from. Someone with both a personal account and an organization has two installations, and only the active one is visible to scans — so if a repository you expect is missing from bench_list_repos, check bench_connection_status and activate the installation that owns it.",
+    inputSchema: activateInstallationInput,
+    handler: async (args, ctx) =>
+      ctx.client.request(`/api/github/installations/${args.installation_id as number}/activate`, {
+        method: "POST",
+      }),
   });
 
   registerTool(server, context, {

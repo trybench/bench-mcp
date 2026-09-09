@@ -71,6 +71,7 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 | `bench_whoami` | Plan, subscription status, evaluations remaining |
 | `bench_connection_status` | Which GitHub accounts are connected |
 | `bench_connect_github` | Link for connecting a GitHub account and choosing repositories |
+| `bench_activate_installation` | Switch which connected GitHub account Bench reads from |
 | `bench_list_repos` | Repositories Bench can reach |
 | `bench_list_branches` | Branches of one repository |
 

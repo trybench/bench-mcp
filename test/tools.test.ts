@@ -80,11 +80,12 @@ describe("tool surface", () => {
   // GET /api/evaluation-runs/{id} to bench-api earned bench_get_evaluation
   // its own tool, where the plan had folded single-run polling into
   // bench_list_evaluations.
-  it("exposes exactly the eighteen agreed tools", async () => {
+  it("exposes exactly the nineteen agreed tools", async () => {
     const client = await connect(api);
     const { tools } = await client.listTools();
 
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "bench_activate_installation",
       "bench_cancel_evaluation",
       "bench_connect_github",
       "bench_connection_status",
@@ -368,5 +369,27 @@ describe("connecting GitHub", () => {
     expect(resultJson(result as never)).toMatchObject({
       url: "https://github.com/apps/bench-staging/installations/new",
     });
+  });
+})
+
+describe("switching GitHub account", () => {
+  // Someone with a personal account and an organization has two
+  // installations, and only the active one is visible to scans. Without
+  // this, a repo that exists and is granted simply never appears, with no
+  // way to fix it from the editor.
+  it("activates a different installation", async () => {
+    api.on("POST", "/api/github/installations/987/activate", { status: "connected" });
+    const client = await connect(api);
+
+    const result = await client.callTool({
+      name: "bench_activate_installation",
+      arguments: { installation_id: 987 },
+    });
+
+    expect(api.calls[0]).toMatchObject({
+      method: "POST",
+      url: "/api/github/installations/987/activate",
+    });
+    expect(result.isError).toBeFalsy();
   });
 })
