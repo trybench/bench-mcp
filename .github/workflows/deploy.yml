@@ -23,8 +23,19 @@ jobs:
         run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
             echo "name=prod" >> "$GITHUB_OUTPUT"
+            # Empty until a prod AuthKit instance exists. Both unset
+            # leaves OAuth off and the server on API keys, rather than
+            # advertising an authorization server it cannot verify
+            # against.
+            echo "authkit_domain=" >> "$GITHUB_OUTPUT"
+            echo "resource_url=" >> "$GITHUB_OUTPUT"
           else
             echo "name=staging" >> "$GITHUB_OUTPUT"
+            echo "authkit_domain=https://vigilant-dome-07-staging.authkit.app" >> "$GITHUB_OUTPUT"
+            # Must match bench-api's MCP_RESOURCE_URL and the resource
+            # indicator registered in WorkOS, or tokens fail the audience
+            # check.
+            echo "resource_url=https://mcp.staging.usebench.ai" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Configure AWS credentials
@@ -62,6 +73,9 @@ jobs:
           task-definition: task-definition.json
           container-name: mcp
           image: ${{ steps.ecr-login.outputs.registry }}/bench-${{ steps.env.outputs.name }}-mcp:${{ github.sha }}
+          environment-variables: |
+            BENCH_MCP_AUTHKIT_DOMAIN=${{ steps.env.outputs.authkit_domain }}
+            BENCH_MCP_RESOURCE_URL=${{ steps.env.outputs.resource_url }}
 
       - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
