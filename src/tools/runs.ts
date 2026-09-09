@@ -38,7 +38,7 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
     name: "bench_get_evaluation",
     title: "Get one evaluation run",
     description:
-      "Return one run's current status, stage and scores. This is the polling tool — watch for status \"awaiting_review\" (act on it), \"succeeded\" or \"failed\".",
+      "Return one run's current status, stage and scores. This is the polling tool — statuses are \"running\", \"awaiting_review\" (act on it — the run is blocked until you do), and then one of the terminal three: \"completed\", \"failed\" or \"canceled\".",
     inputSchema: runIdInput,
     readOnly: true,
     handler: async (args, ctx) => ctx.client.request(`/api/evaluation-runs/${args.run_id as number}`),

@@ -37,7 +37,7 @@ export function createServer(opts: CreateServerOptions): McpServer {
         "3. bench_start_evaluation with generate_context: true.",
         "4. Poll bench_get_evaluation. It WILL pause at status \"awaiting_review\".",
         "5. Read the test cases with bench_get_eval_benchmark, then call bench_submit_run_review. The run cannot finish until you do — it fails after 48 hours unreviewed.",
-        "6. Poll until \"succeeded\", then read bench_get_baseline, bench_get_optimization and bench_get_recommendation.",
+        "6. Poll until the run ends. The only terminal statuses are \"completed\", \"failed\" and \"canceled\"; on \"completed\", read bench_get_baseline, bench_get_optimization and bench_get_recommendation.",
         "7. Optionally bench_open_prompt_pr to apply the winning prompt.",
         "",
         "Evaluations cost money and consume the account's monthly balance, so confirm with the user before starting one. Reading results is always free.",

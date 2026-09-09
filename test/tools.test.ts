@@ -393,3 +393,22 @@ describe("switching GitHub account", () => {
     expect(result.isError).toBeFalsy();
   });
 })
+
+describe("run status vocabulary", () => {
+  // A run ends as "completed". An earlier version of these descriptions
+  // said "succeeded", a status bench-api never emits — an agent following
+  // that guidance polls until the 48-hour review timeout instead of
+  // reading the results. Caught during the first real staging run.
+  it("never tells the agent to wait for a status bench-api does not emit", async () => {
+    const client = await connect(api);
+    const { tools } = await client.listTools();
+
+    const surface = [
+      client.getInstructions() ?? "",
+      ...tools.map((t) => `${t.description ?? ""} ${t.title ?? ""}`),
+    ].join("\n");
+
+    expect(surface).not.toMatch(/"succeeded"/);
+    expect(surface).toContain('"completed"');
+  });
+})
