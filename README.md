@@ -141,6 +141,8 @@ Set `BENCH_MCP_AUTHKIT_DOMAIN` and `BENCH_MCP_RESOURCE_URL` and the server also 
 
 bench-mcp is an OAuth *resource server* only: WorkOS AuthKit issues the tokens, and this server publishes where to get one (`/.well-known/oauth-protected-resource`, RFC 9728) and verifies the ones it receives. A token is accepted only if it was issued **for this server** (RFC 8707 audience binding) — without that check, a token minted for another AuthKit-protected resource would be replayable here.
 
+The verified token is then **exchanged** at bench-api for a separate, short-lived bench-api credential, which is what tool calls actually use. It is never forwarded as-is: the spec forbids passing the client's token to an upstream API, since that token is audienced for this server and bench-api would be honouring a credential never issued for it.
+
 Leaving either variable unset disables OAuth entirely, which is correct for stdio: the spec says stdio servers should take credentials from the environment rather than doing OAuth at all.
 
 ## Development

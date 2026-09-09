@@ -104,3 +104,43 @@ export class TokenVerifier {
     };
   }
 }
+
+/**
+ * Trades a verified access token for a bench-api credential.
+ *
+ * The MCP specification forbids forwarding the token received from the
+ * client to an upstream API: it is audienced for this server, so using it
+ * as a credential at bench-api would mean bench-api honouring a token
+ * never issued for it. bench-api validates the audience and returns one
+ * of its own short-lived tokens instead, and that is what tool calls use.
+ *
+ * Exchanged once per session and held only in that session's memory,
+ * alongside the server it belongs to.
+ */
+export async function exchangeForBenchToken(
+  baseUrl: string,
+  accessToken: string,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<string> {
+  const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/api/auth/mcp-token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as
+      | { error?: { code?: string; message?: string } }
+      | null;
+    // bench-api's messages here are written for the person connecting —
+    // no Bench account, wrong plan — so they are surfaced rather than
+    // replaced with something vaguer.
+    throw new Error(body?.error?.message ?? `token exchange failed (${response.status})`);
+  }
+
+  const body = (await response.json()) as { token?: string };
+  if (!body.token) throw new Error("token exchange returned no token");
+  return body.token;
+}

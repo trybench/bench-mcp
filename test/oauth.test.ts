@@ -15,6 +15,11 @@ import { protectedResourceMetadata, readOAuthConfig } from "../src/oauth.js";
  */
 
 const RESOURCE_URL = "https://mcp.test.invalid";
+/** What bench-api hands back in exchange for a verified access token. */
+const BENCH_TOKEN = "bench-issued-session-token";
+
+const upstreamCalls: Array<{ path: string; auth: string | null }> = [];
+let exchangeStatus = 200;
 
 let authServer: Server;
 let authkitDomain: string;
@@ -41,16 +46,34 @@ beforeEach(async () => {
   await new Promise<void>((resolve) => authServer.listen(0, resolve));
   authkitDomain = `http://127.0.0.1:${(authServer.address() as AddressInfo).port}`;
 
+  upstreamCalls.length = 0;
+  exchangeStatus = 200;
   mcpServer = createHttpTransportServer({
     baseUrl: "https://api.test.invalid",
     timeoutMs: 5000,
     port: 0,
     oauth: { authkitDomain, resourceUrl: RESOURCE_URL },
-    fetchImpl: async () =>
-      new Response(JSON.stringify({ ok: true }), {
+    fetchImpl: async (input, init) => {
+      const url = new URL(typeof input === "string" ? input : input.toString());
+      const auth = new Headers(init?.headers).get("Authorization");
+      upstreamCalls.push({ path: url.pathname, auth });
+      if (url.pathname === "/api/auth/mcp-token") {
+        if (exchangeStatus !== 200) {
+          return new Response(
+            JSON.stringify({ error: { code: "mcp_requires_growth", message: "Upgrade to Growth." } }),
+            { status: exchangeStatus, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ token: BENCH_TOKEN, expires_in: 3600 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }),
+      });
+    },
   });
   await new Promise<void>((resolve) => mcpServer.listen(0, resolve));
   mcpUrl = new URL(`http://127.0.0.1:${(mcpServer.address() as AddressInfo).port}`);
@@ -219,5 +242,57 @@ describe("without oauth configured", () => {
 
     expect(res.status).toBe(404);
     await new Promise<void>((resolve) => plain.close(() => resolve()));
+  });
+});
+
+
+describe("token exchange", () => {
+  // The requirement that drove this design: the MCP spec forbids
+  // forwarding the client's token to an upstream API, because it is
+  // audienced for this server and bench-api would be honouring a
+  // credential never issued for it.
+  it("never uses the client's access token as a credential at bench-api", async () => {
+    const token = await mintToken();
+
+    await initialize(token);
+
+    // Presenting it AT the exchange endpoint is the point; using it
+    // anywhere else would be the passthrough the spec forbids.
+    const resourceCalls = upstreamCalls.filter((c) => c.path !== "/api/auth/mcp-token");
+    expect(upstreamCalls.some((c) => c.path === "/api/auth/mcp-token")).toBe(true);
+    for (const call of resourceCalls) {
+      expect(call.auth).not.toContain(token);
+    }
+  });
+
+  it("exchanges the access token and uses what bench-api returns", async () => {
+    await initialize(await mintToken());
+
+    const exchange = upstreamCalls.find((c) => c.path === "/api/auth/mcp-token");
+    expect(exchange).toBeDefined();
+    // Everything after the exchange authenticates with bench-api's own
+    // token, not the one the client presented.
+    const others = upstreamCalls.filter((c) => c.path !== "/api/auth/mcp-token");
+    for (const call of others) {
+      expect(call.auth).toBe(`Bearer ${BENCH_TOKEN}`);
+    }
+  });
+
+  it("does not exchange for an API key, which is already a bench credential", async () => {
+    await initialize("bench_sk_stillworks");
+
+    expect(upstreamCalls.find((c) => c.path === "/api/auth/mcp-token")).toBeUndefined();
+  });
+
+  // Authenticated but not entitled — no Bench account, or a plan without
+  // editor access. Signing in again will not fix it, so 403 not 401.
+  it("reports a refused exchange as forbidden, surfacing bench-api's reason", async () => {
+    exchangeStatus = 403;
+
+    const res = await initialize(await mintToken());
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toContain("Upgrade to Growth");
   });
 });

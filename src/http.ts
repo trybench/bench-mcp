@@ -7,6 +7,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import { API_KEY_PREFIX, type BaseConfig } from "./config.js";
 import {
+  exchangeForBenchToken,
   type OAuthConfig,
   PROTECTED_RESOURCE_PATH,
   protectedResourceMetadata,
@@ -204,6 +205,12 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
       return;
     }
 
+    // What the session's tools will actually authenticate to bench-api
+    // with. For an API key that is the key itself; for an OAuth token it
+    // is a *different* credential obtained by exchange, because the spec
+    // forbids forwarding the client's token to an upstream API.
+    let upstreamCredential = credential;
+
     if (!credential.startsWith(API_KEY_PREFIX)) {
       if (!verifier) {
         unauthorized(`Not a Bench API key — it should start with "${API_KEY_PREFIX}".`);
@@ -219,12 +226,34 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
         unauthorized("Invalid or expired access token.");
         return;
       }
+
+      try {
+        upstreamCredential = await exchangeForBenchToken(
+          opts.baseUrl,
+          credential,
+          opts.fetchImpl ?? globalThis.fetch,
+        );
+      } catch (error) {
+        // A verified token that cannot be exchanged means the person is
+        // authenticated but not entitled — no Bench account, or a plan
+        // without editor access. That is a 403, not a 401: signing in
+        // again will not change it, and bench-api's message says why.
+        writeJson(res, 403, {
+          jsonrpc: "2.0",
+          error: {
+            code: -32002,
+            message: error instanceof Error ? error.message : "could not authorize with Bench",
+          },
+          id: null,
+        });
+        return;
+      }
     }
 
     // One server per session, holding only this user's credential.
     const server = createServer({
       baseUrl: opts.baseUrl,
-      apiKey: credential,
+      apiKey: upstreamCredential,
       timeoutMs: opts.timeoutMs,
       ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
     });
