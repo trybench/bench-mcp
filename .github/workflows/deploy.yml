@@ -1,0 +1,97 @@
+name: Deploy
+
+on:
+  push:
+    branches: [dev, main]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set environment
+        id: env
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "name=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/bench-mcp-deploy
+          aws-region: eu-central-1
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY: bench-${{ steps.env.outputs.name }}-mcp
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - name: Download current task definition
+        env:
+          ENVIRONMENT: ${{ steps.env.outputs.name }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "bench-${ENVIRONMENT}-mcp" \
+            --region eu-central-1 \
+            --query taskDefinition > task-definition.json
+
+      - name: Render new image into task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: mcp
+          image: ${{ steps.ecr-login.outputs.registry }}/bench-${{ steps.env.outputs.name }}-mcp:${{ github.sha }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: bench-${{ steps.env.outputs.name }}-cluster
+          service: bench-${{ steps.env.outputs.name }}-mcp
+          wait-for-service-stability: true
+
+      # Same reasoning as bench-api's: the stabilization waiter has a known
+      # false-negative pattern, so check the service's actual live image
+      # rather than trusting it. if: always() is load-bearing — this is
+      # exactly the check that must still run when the deploy step reports
+      # a timeout it did not really suffer.
+      - name: Verify service is running this commit's image
+        if: always()
+        env:
+          ENVIRONMENT: ${{ steps.env.outputs.name }}
+        run: |
+          TD_ARN="$(aws ecs describe-services \
+            --cluster "bench-${ENVIRONMENT}-cluster" \
+            --services "bench-${ENVIRONMENT}-mcp" \
+            --region eu-central-1 \
+            --query 'services[0].taskDefinition' --output text)"
+          LIVE_IMAGE="$(aws ecs describe-task-definition \
+            --task-definition "$TD_ARN" \
+            --region eu-central-1 \
+            --query 'taskDefinition.containerDefinitions[0].image' --output text)"
+          if [[ "$LIVE_IMAGE" != *"${{ github.sha }}"* ]]; then
+            echo "::error::Service bench-${ENVIRONMENT}-mcp is running $LIVE_IMAGE, not this commit (${{ github.sha }})"
+            exit 1
+          fi
+          echo "Verified: bench-${ENVIRONMENT}-mcp is running $LIVE_IMAGE"
