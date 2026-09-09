@@ -80,7 +80,7 @@ describe("tool surface", () => {
   // GET /api/evaluation-runs/{id} to bench-api earned bench_get_evaluation
   // its own tool, where the plan had folded single-run polling into
   // bench_list_evaluations.
-  it("exposes exactly the nineteen agreed tools", async () => {
+  it("exposes exactly the twenty agreed tools", async () => {
     const client = await connect(api);
     const { tools } = await client.listTools();
 
@@ -99,6 +99,7 @@ describe("tool surface", () => {
       "bench_list_evaluations",
       "bench_list_repos",
       "bench_open_prompt_pr",
+      "bench_rerun_evaluation",
       "bench_scan_repo",
       "bench_start_evaluation",
       "bench_submit_run_review",
@@ -410,5 +411,48 @@ describe("run status vocabulary", () => {
 
     expect(surface).not.toMatch(/"succeeded"/);
     expect(surface).toContain('"completed"');
+  });
+})
+
+describe("re-running an evaluation", () => {
+  // The actual loop: act on a recommendation, then re-bench. Without this
+  // an agent could evaluate a prompt but never verify its own fix.
+  it("re-runs a single prompt by default", async () => {
+    api.on("POST", "/api/evaluation-runs/42/rerun", { runs: [{ id: 43 }] }, 202);
+    const client = await connect(api);
+
+    await client.callTool({ name: "bench_rerun_evaluation", arguments: { run_id: 42 } });
+
+    expect(api.calls[0]?.url).toBe("/api/evaluation-runs/42/rerun");
+    // Defaulting to the whole group would silently spend an evaluation
+    // per prompt when the user asked about one.
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toMatchObject({ single_prompt: true });
+  });
+
+  it("can re-run the whole benching session", async () => {
+    api.on("POST", "/api/evaluation-runs/42/rerun", { runs: [] }, 202);
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_rerun_evaluation",
+      arguments: { run_id: 42, single_prompt: false },
+    });
+
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toMatchObject({ single_prompt: false });
+  });
+
+  it("can regenerate the business context, for a run cancelled before one was stored", async () => {
+    api.on("POST", "/api/evaluation-runs/42/rerun", { runs: [] }, 202);
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_rerun_evaluation",
+      arguments: { run_id: 42, generate_context: true, context_doc: "We sell boots." },
+    });
+
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toMatchObject({
+      generate_context: true,
+      context_doc: "We sell boots.",
+    });
   });
 })
