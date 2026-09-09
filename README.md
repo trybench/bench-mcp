@@ -95,6 +95,17 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 | `bench_rerun_evaluation` | Re-score a prompt after changing it — unchanged stages are reused and free |
 | `bench_cancel_evaluation` | Stop a run |
 
+**Per-stage** — for driving the pipeline a step at a time
+
+| Tool | Does |
+| --- | --- |
+| `bench_generate_business_context` | Work out what the product does, from its prompts |
+| `bench_get_business_context` | Read the stored context |
+| `bench_fetch_website_text` | Read a page as text, to ground the context |
+| `bench_generate_eval_benchmark` | Build the rubric and test cases without scoring |
+
+The orchestrated run does all of this internally, so these are for inspecting or rebuilding a stage on its own — none of them consume an evaluation.
+
 **Results** — free
 
 | Tool | Does |
@@ -111,7 +122,7 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 
 ### Not here yet
 
-Per-stage control — generating a business context, a benchmark, a baseline or an optimization pass on their own — is deliberately left out of v1. The orchestrated run covers all of it, and the per-stage endpoints stream newline-delimited JSON, which sits badly with MCP request timeouts. They will be added if there is demand for stage-at-a-time control.
+Running a baseline or an optimization pass on their own. Both stream progress over a long-running request, which sits badly with MCP request timeouts — the orchestrated run covers them, and reports progress by polling instead.
 
 There is also no tool to trigger the recommend stage: bench-api runs it only as part of an evaluation and exposes no endpoint to invoke it directly.
 

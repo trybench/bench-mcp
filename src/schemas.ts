@@ -100,6 +100,35 @@ export const runIdInput = {
   run_id: z.number().int().positive().describe("Evaluation run id, from bench_start_evaluation."),
 };
 
+export const generateContextInput = {
+  ...repoBranch,
+  business_doc_text: z
+    .string()
+    .optional()
+    .describe(
+      "Plain text about the business, to ground the result. Omit to infer everything from the prompts alone.",
+    ),
+};
+
+export const websiteTextInput = {
+  url: z.string().url().describe("Page to read, e.g. the product's home or about page."),
+};
+
+export const generateBenchmarkInput = {
+  ...repoBranchCallSite,
+  suite_name: z.string().optional().describe("Label for the generated test suite."),
+  previous_routing_json: z
+    .string()
+    .optional()
+    .describe(
+      "The last result's scoring.routing, to get a report of what changed. Omit for a first pass.",
+    ),
+  reference_today: z
+    .string()
+    .optional()
+    .describe("Date to treat as today when generating time-sensitive cases."),
+};
+
 export const rerunEvaluationInput = {
   ...runIdInput,
   single_prompt: z

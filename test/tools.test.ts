@@ -80,7 +80,7 @@ describe("tool surface", () => {
   // GET /api/evaluation-runs/{id} to bench-api earned bench_get_evaluation
   // its own tool, where the plan had folded single-run polling into
   // bench_list_evaluations.
-  it("exposes exactly the twenty agreed tools", async () => {
+  it("exposes exactly the twenty-four agreed tools", async () => {
     const client = await connect(api);
     const { tools } = await client.listTools();
 
@@ -89,7 +89,11 @@ describe("tool surface", () => {
       "bench_cancel_evaluation",
       "bench_connect_github",
       "bench_connection_status",
+      "bench_fetch_website_text",
+      "bench_generate_business_context",
+      "bench_generate_eval_benchmark",
       "bench_get_baseline",
+      "bench_get_business_context",
       "bench_get_eval_benchmark",
       "bench_get_evaluation",
       "bench_get_optimization",
@@ -456,3 +460,43 @@ describe("re-running an evaluation", () => {
     });
   });
 })
+
+
+describe("per-stage tools", () => {
+  it("generates a business context for a repo branch", async () => {
+    api.on("POST", "/api/repos/trybench/bench-api/business-context", { result: {}, reused: false });
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_generate_business_context",
+      arguments: { owner: "trybench", repo: "bench-api", branch: "dev", business_doc_text: "We sell boots." },
+    });
+
+    expect(api.calls[0]?.url).toBe("/api/repos/trybench/bench-api/business-context?branch=dev");
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ business_doc_text: "We sell boots." });
+  });
+
+  it("reads a stored business context", async () => {
+    api.on("GET", "/api/repos/trybench/bench-api/business-context/latest", { reused: true });
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_get_business_context",
+      arguments: { owner: "trybench", repo: "bench-api", branch: "dev" },
+    });
+
+    expect(api.calls[0]?.url).toBe("/api/repos/trybench/bench-api/business-context/latest?branch=dev");
+  });
+
+  it("fetches page text to ground a context", async () => {
+    api.on("POST", "/api/website-text", { text: "We sell boots." });
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_fetch_website_text",
+      arguments: { url: "https://example.com/about" },
+    });
+
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ url: "https://example.com/about" });
+  });
+});

@@ -6,6 +6,7 @@ import { registerPrTools } from "./tools/pr.js";
 import { registerResultTools } from "./tools/results.js";
 import { registerRunTools } from "./tools/runs.js";
 import { registerScanTools } from "./tools/scan.js";
+import { registerStageTools } from "./tools/stages.js";
 import type { ToolContext } from "./tools/register.js";
 
 export interface CreateServerOptions {
@@ -57,6 +58,7 @@ export function createServer(opts: CreateServerOptions): McpServer {
   registerConnectTools(server, context);
   registerScanTools(server, context);
   registerRunTools(server, context);
+  registerStageTools(server, context);
   registerResultTools(server, context);
   registerPrTools(server, context);
 
