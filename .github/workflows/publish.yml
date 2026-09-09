@@ -1,0 +1,52 @@
+name: Publish
+
+# Publishes to npm on a version tag. Uses npm trusted publishing (OIDC),
+# so no npm token is stored in this repository — the registry verifies
+# the workflow identity directly.
+#
+# The first publish of a package cannot use this: trusted publishing is
+# configured per package on npmjs.com, and the package has to exist
+# first. Publish once locally with `npm publish --access public`, then
+# add this workflow as a trusted publisher.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  id-token: write # required for OIDC
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Trusted publishing needs Node >= 22.14 and npm >= 11.5.1.
+          node-version: '22.14'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Use an npm new enough for trusted publishing
+        run: npm install -g npm@latest
+
+      - run: npm ci
+
+      # The package ships compiled output, so a broken build must fail
+      # here rather than being published.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Check the tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
+
+      - run: npm publish
