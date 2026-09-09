@@ -39,13 +39,27 @@ export function readOAuthConfig(env: NodeJS.ProcessEnv = process.env): OAuthConf
   return { authkitDomain, resourceUrl };
 }
 
+/**
+ * Scopes a token must carry to be usable here.
+ *
+ * `email` is not decoration: bench-api matches an access token to a Bench
+ * account by its email claim, and refuses the exchange without one. The
+ * authorization server only includes that claim if the scope was
+ * requested, and per the spec a client "omits the scope parameter if
+ * scopes_supported is undefined" — so leaving this out silently produced
+ * tokens that authenticated fine and could not be exchanged.
+ */
+export const REQUIRED_SCOPES = ["openid", "profile", "email"] as const;
+
 /** The RFC 9728 document. Clients read this to find the authorization
- * server, so its shape is a contract, not an implementation detail. */
+ * server and to learn which scopes to ask for, so its shape is a
+ * contract, not an implementation detail. */
 export function protectedResourceMetadata(config: OAuthConfig): Record<string, unknown> {
   return {
     resource: config.resourceUrl,
     authorization_servers: [config.authkitDomain],
     bearer_methods_supported: ["header"],
+    scopes_supported: [...REQUIRED_SCOPES],
   };
 }
 
@@ -58,7 +72,15 @@ export const PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource";
  * authenticate, so a bare 401 without this leaves it with nowhere to go.
  */
 export function wwwAuthenticate(config: OAuthConfig): string {
-  return `Bearer error="unauthorized", resource_metadata="${config.resourceUrl}${PROTECTED_RESOURCE_PATH}"`;
+  // The spec says servers SHOULD include scope here, and a client takes
+  // the challenge as authoritative for the current operation — so this is
+  // the most direct way to tell it what to ask for, ahead of the metadata
+  // document it may not have fetched yet.
+  return [
+    'Bearer error="unauthorized"',
+    `scope="${REQUIRED_SCOPES.join(" ")}"`,
+    `resource_metadata="${config.resourceUrl}${PROTECTED_RESOURCE_PATH}"`,
+  ].join(", ");
 }
 
 export interface VerifiedToken {
