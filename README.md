@@ -53,7 +53,7 @@ bench_start_evaluation   kick off benchmark → baseline → optimize → recomm
 bench_get_evaluation     poll … status becomes "awaiting_review"
 bench_get_eval_benchmark read the generated test cases
 bench_submit_run_review  approve or edit them; the run continues
-bench_get_evaluation     poll … status becomes "succeeded"
+bench_get_evaluation     poll … status becomes "completed"
 bench_get_optimization   read the winning prompt and model
 bench_open_prompt_pr     open a PR applying it
 ```
