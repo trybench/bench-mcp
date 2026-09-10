@@ -88,6 +88,10 @@ export interface HttpServerOptions extends BaseConfig {
 
 export function createHttpTransportServer(opts: HttpServerOptions): Server {
   const sessions = new Map<string, Session>();
+  // Counters, not gauges: they answer "did renewal ever happen here", which
+  // a point-in-time session count cannot. Aggregate only — no identity, and
+  // /healthz is unauthenticated.
+  const counts = { renewals: 0, challenges: 0, refusals: 0 };
   const ttlMs = opts.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
   const verifier = opts.oauth ? new TokenVerifier(opts.oauth) : undefined;
 
@@ -128,7 +132,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // Unauthenticated on purpose: the ALB health check has no credential,
     // and this reveals nothing.
     if (url.pathname === "/healthz") {
-      writeJson(res, 200, { status: "ok", sessions: sessions.size });
+      writeJson(res, 200, { status: "ok", sessions: sessions.size, ...counts });
       return;
     }
 
@@ -179,6 +183,8 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
           await session.credential.get();
         } catch (error) {
           if (error instanceof CredentialRefreshError && error.kind === "forbidden") {
+            counts.refusals += 1;
+            log("credential_renewal_refused", { reason: error.message });
             writeJson(res, 403, {
               jsonrpc: "2.0",
               error: { code: -32002, message: error.message },
@@ -188,6 +194,8 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
           }
           // The client re-authenticates and replays the request, so this
           // is recovery rather than an error the user has to act on.
+          counts.challenges += 1;
+          log("credential_renewal_challenged", {});
           res.setHeader(
             "WWW-Authenticate",
             opts.oauth ? wwwAuthenticate(opts.oauth) : 'Bearer realm="bench"',
@@ -293,6 +301,10 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
             baseUrl: opts.baseUrl,
             fetchImpl: opts.fetchImpl ?? globalThis.fetch,
             subject: verified.subject,
+            onRenewed: () => {
+              counts.renewals += 1;
+              log("credential_renewed", {});
+            },
           },
           credential,
           minted,
@@ -368,6 +380,18 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
   });
 
   return httpServer;
+}
+
+/**
+ * One structured line per credential event.
+ *
+ * Deliberately carries no subject, token or session id. An established
+ * session is addressed by its id alone, so that id is a credential in its
+ * own right and does not belong in a log. These lines exist to show that
+ * renewal is happening at all, which needs no identity to answer.
+ */
+function log(event: string, fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ event, ...fields }));
 }
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {

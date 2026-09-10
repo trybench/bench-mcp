@@ -225,6 +225,8 @@ export class RefreshingCredential {
       fetchImpl: typeof fetch;
       /** The subject a renewal must still belong to. */
       subject: string;
+      /** Called after a successful re-mint, for counting and logging. */
+      onRenewed?: () => void;
     },
     accessToken: string,
     initial: BenchToken,
@@ -307,6 +309,7 @@ export class RefreshingCredential {
 
     this.token = minted.token;
     this.refreshAt = nextRefresh(minted.expiresIn);
+    this.deps.onRenewed?.();
     return this.token;
   }
 }
