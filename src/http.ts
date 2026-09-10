@@ -8,6 +8,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { AuthMode, CredentialSource } from "./client/http.js";
 import { API_KEY_PREFIX, type BaseConfig } from "./config.js";
 import {
+  CredentialRefreshError,
   exchangeForBenchToken,
   type OAuthConfig,
   PROTECTED_RESOURCE_PATH,
@@ -163,12 +164,47 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
         return;
       }
       session.lastSeen = Date.now();
-      // The client refreshes its own access token and sends the current
-      // one on every request. Capturing it here is what lets the session
-      // renew its bench-api token later, instead of dying with the first
-      // one an hour in.
+
+      // Renewal happens here, before the transport takes over, because
+      // this is the last point at which a failure can still be spoken as
+      // HTTP. A client refreshes its access token when it is challenged
+      // with a 401 and not before, so a renewal that needs a fresher
+      // token has to be able to issue that challenge — inside a tool
+      // call it could only throw, and the session would stay broken.
       const live = bearerToken(req);
       if (live) session.credential?.observe(live);
+
+      if (session.credential?.isDue) {
+        try {
+          await session.credential.get();
+        } catch (error) {
+          if (error instanceof CredentialRefreshError && error.kind === "forbidden") {
+            writeJson(res, 403, {
+              jsonrpc: "2.0",
+              error: { code: -32002, message: error.message },
+              id: null,
+            });
+            return;
+          }
+          // The client re-authenticates and replays the request, so this
+          // is recovery rather than an error the user has to act on.
+          res.setHeader(
+            "WWW-Authenticate",
+            opts.oauth ? wwwAuthenticate(opts.oauth) : 'Bearer realm="bench"',
+          );
+          writeJson(res, 401, {
+            jsonrpc: "2.0",
+            error: {
+              code: -32001,
+              message:
+                error instanceof Error ? error.message : "could not renew authorization with Bench",
+            },
+            id: null,
+          });
+          return;
+        }
+      }
+
       await session.transport.handleRequest(req, res);
       return;
     }

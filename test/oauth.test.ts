@@ -1,6 +1,8 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -24,12 +26,40 @@ let exchangeStatus = 200;
 let exchangeExpiresIn = 3600;
 /** Bumped per exchange so a renewal is distinguishable from the first mint. */
 let mintCount = 0;
+/** How many times a client spent its refresh token at the fake AuthKit. */
+let refreshGrants = 0;
+/** Audience the fake AuthKit stamps on tokens it issues at the token endpoint. */
+let refreshAudience = "";
 
 let authServer: Server;
 let authkitDomain: string;
 let signKey: CryptoKey;
 let mcpServer: Server;
 let mcpUrl: URL;
+
+/** Stands in for bench-api: records every call, and mints exchange tokens. */
+const benchApiStub: typeof fetch = async (input, init) => {
+  const url = new URL(typeof input === "string" ? input : input.toString());
+  const auth = new Headers(init?.headers).get("Authorization");
+  upstreamCalls.push({ path: url.pathname, auth });
+  if (url.pathname === "/api/auth/mcp-token") {
+    if (exchangeStatus !== 200) {
+      return new Response(
+        JSON.stringify({ error: { code: "mcp_requires_growth", message: "Upgrade to Growth." } }),
+        { status: exchangeStatus, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    mintCount += 1;
+    return new Response(
+      JSON.stringify({ token: `${BENCH_TOKEN}-${mintCount}`, expires_in: exchangeExpiresIn }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+};
 
 beforeEach(async () => {
   const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
@@ -39,9 +69,42 @@ beforeEach(async () => {
   // Stand-in for AuthKit: serves only the JWKS document.
   const { createServer: createHttp } = await import("node:http");
   authServer = createHttp((req, res) => {
-    if (req.url === "/oauth2/jwks") {
+    const path = (req.url ?? "").split("?")[0];
+    if (path === "/oauth2/jwks") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ keys: [jwk] }));
+      return;
+    }
+    // Enough of an authorization server for a client to discover the
+    // token endpoint and spend a refresh token at it.
+    if (path === "/.well-known/oauth-authorization-server") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          issuer: authkitDomain,
+          authorization_endpoint: `${authkitDomain}/oauth2/authorize`,
+          token_endpoint: `${authkitDomain}/oauth2/token`,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          code_challenge_methods_supported: ["S256"],
+        }),
+      );
+      return;
+    }
+    if (path === "/oauth2/token" && req.method === "POST") {
+      refreshGrants += 1;
+      void (async () => {
+        const fresh = await mintToken({ audience: refreshAudience });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            access_token: fresh,
+            token_type: "Bearer",
+            expires_in: 300,
+            refresh_token: "refresh-token",
+          }),
+        );
+      })();
       return;
     }
     res.writeHead(404);
@@ -54,33 +117,14 @@ beforeEach(async () => {
   exchangeStatus = 200;
   exchangeExpiresIn = 3600;
   mintCount = 0;
+  refreshGrants = 0;
+  refreshAudience = RESOURCE_URL;
   mcpServer = createHttpTransportServer({
     baseUrl: "https://api.test.invalid",
     timeoutMs: 5000,
     port: 0,
     oauth: { authkitDomain, resourceUrl: RESOURCE_URL },
-    fetchImpl: async (input, init) => {
-      const url = new URL(typeof input === "string" ? input : input.toString());
-      const auth = new Headers(init?.headers).get("Authorization");
-      upstreamCalls.push({ path: url.pathname, auth });
-      if (url.pathname === "/api/auth/mcp-token") {
-        if (exchangeStatus !== 200) {
-          return new Response(
-            JSON.stringify({ error: { code: "mcp_requires_growth", message: "Upgrade to Growth." } }),
-            { status: exchangeStatus, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        mintCount += 1;
-        return new Response(
-          JSON.stringify({ token: `${BENCH_TOKEN}-${mintCount}`, expires_in: exchangeExpiresIn }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    },
+    fetchImpl: benchApiStub,
   });
   await new Promise<void>((resolve) => mcpServer.listen(0, resolve));
   mcpUrl = new URL(`http://127.0.0.1:${(mcpServer.address() as AddressInfo).port}`);
@@ -452,6 +496,22 @@ describe("credential renewal", () => {
     expect(upstreamAuth()).toEqual([]);
   });
 
+  // A plan lapsing mid-session is not an authentication problem, and
+  // answering it with a 401 would send the client round the sign-in loop
+  // to arrive back at the same refusal.
+  it("reports a renewal refused on entitlement as forbidden, not unauthorized", async () => {
+    exchangeExpiresIn = 1;
+    const token = await mintToken();
+    const sessionId = await openSession(token);
+    exchangeStatus = 403;
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const res = await callWhoami(sessionId, token);
+
+    expect(res.status).toBe(403);
+    expect(res.body).toContain("Upgrade to Growth");
+  });
+
   // An API key on an OAuth session is not a credential a renewal can use;
   // storing it would destroy the access token the renewal needs.
   it("ignores an API key presented on an OAuth session", async () => {
@@ -467,3 +527,107 @@ describe("credential renewal", () => {
     expect(exchanges[1]?.auth).toBe(`Bearer ${token}`);
   });
 });
+
+
+/**
+ * The recovery this design turns on.
+ *
+ * An MCP client refreshes its access token when it is challenged with a
+ * 401, and not before — `_commonHeaders` simply reads whatever the auth
+ * provider has stored. So a session whose bench-api token has lapsed
+ * cannot renew from the token on the wire, because that one is stale
+ * too. Issuing the challenge is what makes the client produce a usable
+ * token, and it replays the request afterwards.
+ *
+ * This drives the real SDK client against a real (if small) authorization
+ * server rather than asserting on status codes, because the claim being
+ * made is that a stuck session heals with nobody touching it.
+ */
+describe("session recovery", () => {
+  // Its own MCP server, listening on the address it also calls itself, so
+  // the resource_metadata URL in the challenge is one the client can
+  // actually fetch. The shared harness uses a fictional hostname, which
+  // is fine for asserting on headers and fatal for a real OAuth client.
+  let recoveryServer: Server;
+  let recoveryUrl: URL;
+  let recoveryResource: string;
+
+  beforeEach(async () => {
+    const port = await freePort();
+    recoveryResource = `http://127.0.0.1:${port}`;
+    refreshAudience = recoveryResource;
+    recoveryUrl = new URL(`${recoveryResource}/mcp`);
+    recoveryServer = createHttpTransportServer({
+      baseUrl: "https://api.test.invalid",
+      timeoutMs: 5000,
+      port,
+      oauth: { authkitDomain, resourceUrl: recoveryResource },
+      fetchImpl: benchApiStub,
+    });
+    await new Promise<void>((resolve) => recoveryServer.listen(port, resolve));
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => recoveryServer.close(() => resolve()));
+  });
+
+  it("challenges a session it cannot renew, and the client heals it unaided", async () => {
+    exchangeExpiresIn = 1;
+    // Expires almost immediately, so by renewal time the token the client
+    // has stored is as stale as a real one would be.
+    const stale = await mintToken({ audience: recoveryResource, expiresIn: "2s" });
+
+    let stored = stale;
+    let redirected = false;
+    const authProvider = {
+      redirectUrl: "http://localhost/callback",
+      clientMetadata: { redirect_uris: ["http://localhost/callback"] },
+      clientInformation: () => ({ client_id: "test-client" }),
+      tokens: () => ({ access_token: stored, token_type: "Bearer", refresh_token: "refresh-token" }),
+      saveTokens: (t: { access_token: string }) => {
+        stored = t.access_token;
+      },
+      redirectToAuthorization: () => {
+        // Falling back to the browser would mean the refresh never
+        // happened — recovery is supposed to be invisible to the user.
+        redirected = true;
+      },
+      saveCodeVerifier: () => undefined,
+      codeVerifier: () => "verifier",
+    };
+
+    const client = new Client({ name: "recovery-test", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(recoveryUrl, {
+      // The SDK's provider interface is wider than this stub needs.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      authProvider: authProvider as any,
+    });
+    await client.connect(transport);
+
+    // Outlive the bench-api token, as polling a run does.
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    const result = await client.callTool({ name: "bench_whoami", arguments: {} });
+
+    expect(result.isError).toBeFalsy();
+    expect(redirected).toBe(false);
+    // The client refreshed, and the session renewed off what that produced.
+    expect(refreshGrants).toBeGreaterThan(0);
+    expect(stored).not.toBe(stale);
+    expect(mintCount).toBe(2);
+    const resourceCalls = upstreamCalls.filter((c) => c.path === "/api/auth/me");
+    expect(resourceCalls.at(-1)?.auth).toBe(`Bearer ${BENCH_TOKEN}-2`);
+
+    await client.close();
+  });
+});
+
+/** An unused localhost port, so a server can be told its own address up front. */
+async function freePort(): Promise<number> {
+  const { createServer: createHttp } = await import("node:http");
+  const probe = createHttp();
+  await new Promise<void>((resolve) => probe.listen(0, resolve));
+  const port = (probe.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
+}

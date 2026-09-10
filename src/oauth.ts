@@ -246,8 +246,17 @@ export class RefreshingCredential {
     this.accessToken = accessToken;
   }
 
+  /** True when the token is close enough to expiry to be worth renewing. */
+  get isDue(): boolean {
+    return Date.now() >= this.refreshAt;
+  }
+
+  /**
+   * The credential for one request. Renews if due, sharing a single
+   * in-flight renewal between concurrent calls.
+   */
   async get(): Promise<string> {
-    if (Date.now() < this.refreshAt) return this.token;
+    if (!this.isDue) return this.token;
     this.inflight ??= this.renew().finally(() => {
       this.inflight = undefined;
     });
@@ -259,8 +268,13 @@ export class RefreshingCredential {
     try {
       verified = await this.deps.verifier.verify(this.accessToken);
     } catch {
-      throw new Error(
-        "Your Bench sign-in has expired. Reconnect the Bench connector to sign in again.",
+      // The access token this session has been presenting is no longer
+      // usable. The client can fix that — it holds a refresh token — but
+      // only if it is told to, which is what the 401 carrying this is
+      // for.
+      throw new CredentialRefreshError(
+        "reauthenticate",
+        "Your Bench sign-in needs renewing. Reconnect the Bench connector if this persists.",
       );
     }
 
@@ -268,17 +282,50 @@ export class RefreshingCredential {
     // token for anyone else would silently re-key it to a different
     // account, which is the one thing a session must never do.
     if (verified.subject !== this.deps.subject) {
-      throw new Error("This session belongs to a different Bench account. Reconnect to continue.");
+      throw new CredentialRefreshError(
+        "reauthenticate",
+        "This session belongs to a different Bench account. Reconnect to continue.",
+      );
     }
 
-    const minted = await exchangeForBenchToken(
-      this.deps.baseUrl,
-      this.accessToken,
-      this.deps.fetchImpl,
-    );
+    let minted: BenchToken;
+    try {
+      minted = await exchangeForBenchToken(
+        this.deps.baseUrl,
+        this.accessToken,
+        this.deps.fetchImpl,
+      );
+    } catch (error) {
+      // Authenticated, but no longer entitled — a plan lapsed mid-session,
+      // say. Signing in again cannot fix that, so it must not be reported
+      // as an authentication problem.
+      throw new CredentialRefreshError(
+        "forbidden",
+        error instanceof Error ? error.message : "could not renew authorization with Bench",
+      );
+    }
+
     this.token = minted.token;
     this.refreshAt = nextRefresh(minted.expiresIn);
     return this.token;
+  }
+}
+
+/**
+ * A renewal that failed, and whether the client can do anything about it.
+ *
+ * "reauthenticate" becomes a 401: the client holds a refresh token and
+ * will use it when challenged, then retry — so the session heals itself
+ * without the user touching anything. "forbidden" becomes a 403, because
+ * signing in again would change nothing.
+ */
+export class CredentialRefreshError extends Error {
+  constructor(
+    readonly kind: "reauthenticate" | "forbidden",
+    message: string,
+  ) {
+    super(message);
+    this.name = "CredentialRefreshError";
   }
 }
 
