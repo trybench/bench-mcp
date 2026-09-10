@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { BenchClient } from "../src/client/http.js";
 import { createServer } from "../src/server.js";
 
 /**
@@ -525,3 +526,44 @@ describe("harness findings", () => {
     expect(scan?.description).toContain("confidence");
   });
 })
+
+
+/**
+ * The remedy an expired credential suggests has to match how the user
+ * connected. Someone on the hosted server signed in through the browser
+ * and has no BENCH_API_KEY to regenerate, so telling them to go make one
+ * sends them somewhere that cannot help.
+ */
+describe("expired-credential guidance", () => {
+  const unauthorized = () =>
+    new Response(
+      JSON.stringify({ error: { code: "unauthorized", message: "invalid or expired session token" } }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    );
+
+  async function messageFor(authMode: "api_key" | "oauth"): Promise<string> {
+    const client = new BenchClient({
+      baseUrl: "https://api.test.invalid",
+      apiKey: "credential",
+      authMode,
+      fetchImpl: async () => unauthorized(),
+    });
+    try {
+      await client.request("/api/auth/me");
+      throw new Error("expected the request to fail");
+    } catch (error) {
+      return (error as Error).message;
+    }
+  }
+
+  it("points an API-key user at their key", async () => {
+    expect(await messageFor("api_key")).toContain("BENCH_API_KEY");
+  });
+
+  it("points a connected user at reconnecting, not at a key they never had", async () => {
+    const message = await messageFor("oauth");
+
+    expect(message).toContain("Reconnect");
+    expect(message).not.toContain("BENCH_API_KEY");
+  });
+});

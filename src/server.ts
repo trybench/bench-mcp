@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { BenchClient } from "./client/http.js";
+import { type AuthMode, BenchClient, type CredentialSource } from "./client/http.js";
 import { registerConnectTools } from "./tools/connect.js";
 import { registerPrTools } from "./tools/pr.js";
 import { registerResultTools } from "./tools/results.js";
@@ -11,7 +11,9 @@ import type { ToolContext } from "./tools/register.js";
 
 export interface CreateServerOptions {
   baseUrl: string;
-  apiKey: string;
+  apiKey: CredentialSource;
+  /** Decides what an expired credential tells the user to do. */
+  authMode?: AuthMode;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -50,6 +52,7 @@ export function createServer(opts: CreateServerOptions): McpServer {
     client: new BenchClient({
       baseUrl: opts.baseUrl,
       apiKey: opts.apiKey,
+      ...(opts.authMode !== undefined ? { authMode: opts.authMode } : {}),
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
     }),
