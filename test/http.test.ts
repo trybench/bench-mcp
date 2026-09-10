@@ -211,3 +211,26 @@ describe("routing", () => {
     expect(response.status).toBe(404);
   });
 });
+
+/**
+ * The renewal counters exist so that "did a session actually renew" can be
+ * answered from outside the process. A gauge like the session count cannot
+ * answer it: a renewed session and a silently re-created one look the same.
+ */
+describe("renewal counters", () => {
+  it("reports them on the health endpoint, starting at zero", async () => {
+    const res = await fetch(new URL("/healthz", baseUrl));
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(body.status).toBe("ok");
+    expect(body).toMatchObject({ renewals: 0, challenges: 0, refusals: 0 });
+  });
+
+  it("carries no identity, since the endpoint is unauthenticated", async () => {
+    await connectWithKey("bench_sk_alice");
+
+    const body = await (await fetch(new URL("/healthz", baseUrl))).text();
+
+    expect(body).not.toContain("alice");
+  });
+});
