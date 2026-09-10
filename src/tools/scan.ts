@@ -29,7 +29,7 @@ export function registerScanTools(server: McpServer, context: ToolContext): void
     name: "bench_get_scan",
     title: "Get the latest scan",
     description:
-      "Return the most recent stored scan for a repository branch, without re-scanning. This is where call site ids come from — read it before starting an evaluation to choose which prompts to bench.",
+      "Return the most recent stored scan for a repository branch, without re-scanning. This is where call site ids come from — read it before starting an evaluation to choose which prompts to bench.\n\nAlso worth reading before trusting any later score: `confidence` on each call site, and `config_consistency_flags`, which reports the same prompt bound to conflicting model settings. A call site with no `model` will be scored against a default rather than what it actually runs.",
     inputSchema: repoBranch,
     readOnly: true,
     handler: async (args, ctx) =>

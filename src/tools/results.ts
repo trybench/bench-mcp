@@ -31,7 +31,7 @@ export function registerResultTools(server: McpServer, context: ToolContext): vo
   stageResult(
     "bench_get_baseline",
     "Get baseline scores",
-    "Return how the current prompt scored: overall quality, per-case results and projected cost per run. This is the 'before' half of any comparison.",
+    "Return how the current prompt scored: overall quality, per-case results and projected cost per run. This is the 'before' half of any comparison.\n\nCheck the run's own health before quoting the score. `model_substituted` with `model_used` means the call site declared no model and was scored against a default, so the number is not for the model in production. `unscored_count` and `case_errors` mean cases that never scored. `fallback_notes` and `judge_audit` report where the harness had to compensate or where its judges disagreed. Say so when any of these are set, rather than reporting the score alone.",
     "baseline/latest",
   );
 
