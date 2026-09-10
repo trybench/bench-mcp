@@ -496,6 +496,20 @@ describe("credential renewal", () => {
     expect(upstreamAuth()).toEqual([]);
   });
 
+  it("counts a renewal where the health endpoint can be read", async () => {
+    exchangeExpiresIn = 1;
+    const token = await mintToken();
+    const sessionId = await openSession(token);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await callWhoami(sessionId, token);
+
+    const health = (await (await fetch(new URL("/healthz", mcpUrl))).json()) as {
+      renewals?: number;
+    };
+    expect(health.renewals).toBe(1);
+  });
+
   // A plan lapsing mid-session is not an authentication problem, and
   // answering it with a 401 would send the client round the sign-in loop
   // to arrive back at the same refusal.
