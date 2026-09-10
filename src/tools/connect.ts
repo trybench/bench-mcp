@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { listBranchesInput, noInput } from "../schemas.js";
+import { activateInstallationInput, listBranchesInput, noInput } from "../schemas.js";
 import { registerTool, type ToolContext } from "./register.js";
 
 /**
@@ -28,6 +28,28 @@ export function registerConnectTools(server: McpServer, context: ToolContext): v
     inputSchema: noInput,
     readOnly: true,
     handler: async (_args, ctx) => ctx.client.request("/api/github/status"),
+  });
+
+  registerTool(server, context, {
+    name: "bench_connect_github",
+    title: "Connect a GitHub account",
+    description:
+      "Get the link for connecting a GitHub account to Bench, and choosing which repositories it may read. Use this when bench_connection_status reports no connection, or a scan fails because no installation was found — give the user the returned URL and ask them to come back once they have finished.\n\nThe authorization itself happens on GitHub and cannot be done for them: granting read access to source code is deliberately a human action.",
+    inputSchema: noInput,
+    readOnly: true,
+    handler: async (_args, ctx) => ctx.client.request("/api/github/install-url"),
+  });
+
+  registerTool(server, context, {
+    name: "bench_activate_installation",
+    title: "Switch which GitHub account Bench uses",
+    description:
+      "Choose which connected GitHub account Bench reads repositories from. Someone with both a personal account and an organization has two installations, and only the active one is visible to scans — so if a repository you expect is missing from bench_list_repos, check bench_connection_status and activate the installation that owns it.",
+    inputSchema: activateInstallationInput,
+    handler: async (args, ctx) =>
+      ctx.client.request(`/api/github/installations/${args.installation_id as number}/activate`, {
+        method: "POST",
+      }),
   });
 
   registerTool(server, context, {

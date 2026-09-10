@@ -100,6 +100,55 @@ export const runIdInput = {
   run_id: z.number().int().positive().describe("Evaluation run id, from bench_start_evaluation."),
 };
 
+export const generateContextInput = {
+  ...repoBranch,
+  business_doc_text: z
+    .string()
+    .optional()
+    .describe(
+      "Plain text about the business, to ground the result. Omit to infer everything from the prompts alone.",
+    ),
+};
+
+export const websiteTextInput = {
+  url: z.string().url().describe("Page to read, e.g. the product's home or about page."),
+};
+
+export const generateBenchmarkInput = {
+  ...repoBranchCallSite,
+  suite_name: z.string().optional().describe("Label for the generated test suite."),
+  previous_routing_json: z
+    .string()
+    .optional()
+    .describe(
+      "The last result's scoring.routing, to get a report of what changed. Omit for a first pass.",
+    ),
+  reference_today: z
+    .string()
+    .optional()
+    .describe("Date to treat as today when generating time-sensitive cases."),
+};
+
+export const rerunEvaluationInput = {
+  ...runIdInput,
+  single_prompt: z
+    .boolean()
+    .optional()
+    .describe(
+      "Re-run only this prompt rather than every prompt in the original benching session.",
+    ),
+  generate_context: z
+    .boolean()
+    .optional()
+    .describe(
+      "Regenerate the business context as part of the rerun. Needed when the original run was cancelled before its context was stored.",
+    ),
+  context_doc: z
+    .string()
+    .optional()
+    .describe("Plain-text business context, used only with generate_context."),
+};
+
 export const submitReviewInput = {
   ...runIdInput,
   test_cases: z
@@ -131,6 +180,14 @@ export const openPromptPrInput = {
     )
     .min(1)
     .describe("Files to change. Each entry replaces the file's entire content."),
+};
+
+export const activateInstallationInput = {
+  installation_id: z
+    .number()
+    .int()
+    .positive()
+    .describe("GitHub installation id, from bench_connection_status."),
 };
 
 /** Narrow helper for tools that take no arguments. */

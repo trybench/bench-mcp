@@ -1,44 +1,51 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { ConfigError, readBaseConfig, readPort, readStdioConfig, readTransport } from "./config.js";
+import { createHttpTransportServer } from "./http.js";
+import { readOAuthConfig } from "./oauth.js";
 import { createServer } from "./server.js";
 
-const DEFAULT_BASE_URL = "https://api.trybench.ai";
-
 /**
- * Reads configuration from the environment, which is where MCP clients
- * put credentials. Fails loudly and specifically: a server that starts
- * without a key would surface as sixteen tools that all return 401.
+ * stdio is the default and the local path: one user, one process, the key
+ * in the environment. http is the hosted path: many users, each supplying
+ * their own key per connection.
  */
-function readConfig(): { baseUrl: string; apiKey: string; timeoutMs: number } {
-  const apiKey = process.env.BENCH_API_KEY?.trim();
-  if (!apiKey) {
-    console.error(
-      "BENCH_API_KEY is not set. Generate a key in Bench account settings and add it to this server's env in your MCP client config.",
-    );
-    process.exit(1);
-  }
-  if (!apiKey.startsWith("bench_sk_")) {
-    console.error('BENCH_API_KEY does not look like a Bench key — it should start with "bench_sk_".');
-    process.exit(1);
-  }
-
-  const rawTimeout = process.env.BENCH_MCP_TIMEOUT_MS;
-  const timeoutMs = rawTimeout ? Number(rawTimeout) : 120_000;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    console.error(`BENCH_MCP_TIMEOUT_MS must be a positive number of milliseconds, got "${rawTimeout}".`);
-    process.exit(1);
-  }
-
-  return {
-    baseUrl: process.env.BENCH_API_BASE_URL?.trim() || DEFAULT_BASE_URL,
-    apiKey,
-    timeoutMs,
-  };
-}
-
 async function main(): Promise<void> {
-  const config = readConfig();
+  const transport = readTransport();
+
+  if (transport === "http") {
+    const base = readBaseConfig();
+    const port = readPort();
+    const allowedHosts = process.env.BENCH_MCP_ALLOWED_HOSTS?.split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
+
+    const oauth = readOAuthConfig();
+    const server = createHttpTransportServer({
+      ...base,
+      port,
+      ...(allowedHosts?.length ? { allowedHosts } : {}),
+      ...(oauth ? { oauth } : {}),
+    });
+
+    await new Promise<void>((resolve) => server.listen(port, resolve));
+    console.error(
+      `bench-mcp listening on :${port} (bench-api: ${base.baseUrl}, auth: ${oauth ? `api keys + oauth via ${oauth.authkitDomain}` : "api keys"})`,
+    );
+
+    // ECS sends SIGTERM on deregistration; close cleanly so in-flight
+    // requests finish instead of being cut off.
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+      process.on(signal, () => {
+        console.error(`bench-mcp: ${signal} received, shutting down`);
+        server.close(() => process.exit(0));
+      });
+    }
+    return;
+  }
+
+  const config = readStdioConfig();
   const server = createServer(config);
   // stdout carries the MCP protocol itself, so every diagnostic goes to
   // stderr or it corrupts the stream.
@@ -47,6 +54,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  if (error instanceof ConfigError) {
+    console.error(error.message);
+    process.exit(1);
+  }
   console.error("bench-mcp failed to start:", error instanceof Error ? error.message : error);
   process.exit(1);
 });

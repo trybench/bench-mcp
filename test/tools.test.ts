@@ -80,14 +80,20 @@ describe("tool surface", () => {
   // GET /api/evaluation-runs/{id} to bench-api earned bench_get_evaluation
   // its own tool, where the plan had folded single-run polling into
   // bench_list_evaluations.
-  it("exposes exactly the seventeen agreed tools", async () => {
+  it("exposes exactly the twenty-four agreed tools", async () => {
     const client = await connect(api);
     const { tools } = await client.listTools();
 
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "bench_activate_installation",
       "bench_cancel_evaluation",
+      "bench_connect_github",
       "bench_connection_status",
+      "bench_fetch_website_text",
+      "bench_generate_business_context",
+      "bench_generate_eval_benchmark",
       "bench_get_baseline",
+      "bench_get_business_context",
       "bench_get_eval_benchmark",
       "bench_get_evaluation",
       "bench_get_optimization",
@@ -97,6 +103,7 @@ describe("tool surface", () => {
       "bench_list_evaluations",
       "bench_list_repos",
       "bench_open_prompt_pr",
+      "bench_rerun_evaluation",
       "bench_scan_repo",
       "bench_start_evaluation",
       "bench_submit_run_review",
@@ -351,3 +358,170 @@ describe("error translation", () => {
     expect(resultText(result as never)).toContain("could not reach bench-api");
   });
 });
+
+describe("connecting GitHub", () => {
+  // A disconnected account used to be a dead end: the agent could report
+  // "not connected" but had nothing to offer next.
+  it("hands back the install link so a disconnected account has a next step", async () => {
+    api.on("GET", "/api/github/install-url", {
+      url: "https://github.com/apps/bench-staging/installations/new",
+    });
+    const client = await connect(api);
+
+    const result = await client.callTool({ name: "bench_connect_github", arguments: {} });
+
+    expect(api.calls[0]?.url).toBe("/api/github/install-url");
+    expect(resultJson(result as never)).toMatchObject({
+      url: "https://github.com/apps/bench-staging/installations/new",
+    });
+  });
+})
+
+describe("switching GitHub account", () => {
+  // Someone with a personal account and an organization has two
+  // installations, and only the active one is visible to scans. Without
+  // this, a repo that exists and is granted simply never appears, with no
+  // way to fix it from the editor.
+  it("activates a different installation", async () => {
+    api.on("POST", "/api/github/installations/987/activate", { status: "connected" });
+    const client = await connect(api);
+
+    const result = await client.callTool({
+      name: "bench_activate_installation",
+      arguments: { installation_id: 987 },
+    });
+
+    expect(api.calls[0]).toMatchObject({
+      method: "POST",
+      url: "/api/github/installations/987/activate",
+    });
+    expect(result.isError).toBeFalsy();
+  });
+})
+
+describe("run status vocabulary", () => {
+  // A run ends as "completed". An earlier version of these descriptions
+  // said "succeeded", a status bench-api never emits — an agent following
+  // that guidance polls until the 48-hour review timeout instead of
+  // reading the results. Caught during the first real staging run.
+  it("never tells the agent to wait for a status bench-api does not emit", async () => {
+    const client = await connect(api);
+    const { tools } = await client.listTools();
+
+    const surface = [
+      client.getInstructions() ?? "",
+      ...tools.map((t) => `${t.description ?? ""} ${t.title ?? ""}`),
+    ].join("\n");
+
+    expect(surface).not.toMatch(/"succeeded"/);
+    expect(surface).toContain('"completed"');
+  });
+})
+
+describe("re-running an evaluation", () => {
+  // The actual loop: act on a recommendation, then re-bench. Without this
+  // an agent could evaluate a prompt but never verify its own fix.
+  it("re-runs a single prompt by default", async () => {
+    api.on("POST", "/api/evaluation-runs/42/rerun", { runs: [{ id: 43 }] }, 202);
+    const client = await connect(api);
+
+    await client.callTool({ name: "bench_rerun_evaluation", arguments: { run_id: 42 } });
+
+    expect(api.calls[0]?.url).toBe("/api/evaluation-runs/42/rerun");
+    // Defaulting to the whole group would silently spend an evaluation
+    // per prompt when the user asked about one.
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toMatchObject({ single_prompt: true });
+  });
+
+  it("can re-run the whole benching session", async () => {
+    api.on("POST", "/api/evaluation-runs/42/rerun", { runs: [] }, 202);
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_rerun_evaluation",
+      arguments: { run_id: 42, single_prompt: false },
+    });
+
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toMatchObject({ single_prompt: false });
+  });
+
+  it("can regenerate the business context, for a run cancelled before one was stored", async () => {
+    api.on("POST", "/api/evaluation-runs/42/rerun", { runs: [] }, 202);
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_rerun_evaluation",
+      arguments: { run_id: 42, generate_context: true, context_doc: "We sell boots." },
+    });
+
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toMatchObject({
+      generate_context: true,
+      context_doc: "We sell boots.",
+    });
+  });
+})
+
+
+describe("per-stage tools", () => {
+  it("generates a business context for a repo branch", async () => {
+    api.on("POST", "/api/repos/trybench/bench-api/business-context", { result: {}, reused: false });
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_generate_business_context",
+      arguments: { owner: "trybench", repo: "bench-api", branch: "dev", business_doc_text: "We sell boots." },
+    });
+
+    expect(api.calls[0]?.url).toBe("/api/repos/trybench/bench-api/business-context?branch=dev");
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ business_doc_text: "We sell boots." });
+  });
+
+  it("reads a stored business context", async () => {
+    api.on("GET", "/api/repos/trybench/bench-api/business-context/latest", { reused: true });
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_get_business_context",
+      arguments: { owner: "trybench", repo: "bench-api", branch: "dev" },
+    });
+
+    expect(api.calls[0]?.url).toBe("/api/repos/trybench/bench-api/business-context/latest?branch=dev");
+  });
+
+  it("fetches page text to ground a context", async () => {
+    api.on("POST", "/api/website-text", { text: "We sell boots." });
+    const client = await connect(api);
+
+    await client.callTool({
+      name: "bench_fetch_website_text",
+      arguments: { url: "https://example.com/about" },
+    });
+
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ url: "https://example.com/about" });
+  });
+});
+
+describe("harness findings", () => {
+  // A score is only as trustworthy as the run behind it. We saw this
+  // live: a real evaluation returned 0.633 with model_substituted set,
+  // meaning it scored a default model rather than the one that call site
+  // actually runs. These fields already come back in the raw output; the
+  // descriptions are what make an agent look at them.
+  it("tells the agent to check run health before trusting a score", async () => {
+    const client = await connect(api);
+    const { tools } = await client.listTools();
+    const baseline = tools.find((t) => t.name === "bench_get_baseline");
+
+    expect(baseline?.description).toContain("model_substituted");
+    expect(baseline?.description).toContain("unscored_count");
+  });
+
+  it("tells the agent to check extraction confidence on a scan", async () => {
+    const client = await connect(api);
+    const { tools } = await client.listTools();
+    const scan = tools.find((t) => t.name === "bench_get_scan");
+
+    expect(scan?.description).toContain("config_consistency_flags");
+    expect(scan?.description).toContain("confidence");
+  });
+})

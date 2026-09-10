@@ -1,6 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { noInput, repoBranchCallSite, runIdInput, startEvaluationInput, submitReviewInput } from "../schemas.js";
+import {
+  noInput,
+  repoBranchCallSite,
+  rerunEvaluationInput,
+  runIdInput,
+  startEvaluationInput,
+  submitReviewInput,
+} from "../schemas.js";
 import { registerTool, type ToolContext } from "./register.js";
 
 /**
@@ -38,7 +45,7 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
     name: "bench_get_evaluation",
     title: "Get one evaluation run",
     description:
-      "Return one run's current status, stage and scores. This is the polling tool — watch for status \"awaiting_review\" (act on it), \"succeeded\" or \"failed\".",
+      "Return one run's current status, stage and scores. This is the polling tool — statuses are \"running\", \"awaiting_review\" (act on it — the run is blocked until you do), and then one of the terminal three: \"completed\", \"failed\" or \"canceled\".",
     inputSchema: runIdInput,
     readOnly: true,
     handler: async (args, ctx) => ctx.client.request(`/api/evaluation-runs/${args.run_id as number}`),
@@ -78,6 +85,23 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
       ctx.client.request(`/api/evaluation-runs/${args.run_id as number}/review`, {
         method: "POST",
         body: { test_cases: args.test_cases },
+      }),
+  });
+
+  registerTool(server, context, {
+    name: "bench_rerun_evaluation",
+    title: "Re-run an evaluation after changing a prompt",
+    description:
+      "Re-score a prompt against the latest scan of its repository — the loop after you act on a recommendation. Push the change first: this reads the repository, not your working copy, so re-scan with bench_scan_repo before re-running.\n\nOnly the stages your change invalidated actually re-run. An unchanged prompt reuses every stored artifact and finishes in seconds at no cost, so re-running to confirm nothing regressed is cheap.\n\nLike a first run, this pauses at \"awaiting_review\" and needs bench_submit_run_review before it can finish.",
+    inputSchema: rerunEvaluationInput,
+    handler: async (args, ctx) =>
+      ctx.client.request(`/api/evaluation-runs/${args.run_id as number}/rerun`, {
+        method: "POST",
+        body: {
+          single_prompt: args.single_prompt ?? true,
+          generate_context: args.generate_context ?? false,
+          context_doc: args.context_doc ?? "",
+        },
       }),
   });
 

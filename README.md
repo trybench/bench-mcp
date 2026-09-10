@@ -53,7 +53,7 @@ bench_start_evaluation   kick off benchmark → baseline → optimize → recomm
 bench_get_evaluation     poll … status becomes "awaiting_review"
 bench_get_eval_benchmark read the generated test cases
 bench_submit_run_review  approve or edit them; the run continues
-bench_get_evaluation     poll … status becomes "succeeded"
+bench_get_evaluation     poll … status becomes "completed"
 bench_get_optimization   read the winning prompt and model
 bench_open_prompt_pr     open a PR applying it
 ```
@@ -70,6 +70,8 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 | --- | --- |
 | `bench_whoami` | Plan, subscription status, evaluations remaining |
 | `bench_connection_status` | Which GitHub accounts are connected |
+| `bench_connect_github` | Link for connecting a GitHub account and choosing repositories |
+| `bench_activate_installation` | Switch which connected GitHub account Bench reads from |
 | `bench_list_repos` | Repositories Bench can reach |
 | `bench_list_branches` | Branches of one repository |
 
@@ -90,7 +92,19 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 | `bench_list_evaluations` | Recent runs |
 | `bench_get_eval_benchmark` | The rubric and test cases |
 | `bench_submit_run_review` | Release the review gate |
+| `bench_rerun_evaluation` | Re-score a prompt after changing it — unchanged stages are reused and free |
 | `bench_cancel_evaluation` | Stop a run |
+
+**Per-stage** — for driving the pipeline a step at a time
+
+| Tool | Does |
+| --- | --- |
+| `bench_generate_business_context` | Work out what the product does, from its prompts |
+| `bench_get_business_context` | Read the stored context |
+| `bench_fetch_website_text` | Read a page as text, to ground the context |
+| `bench_generate_eval_benchmark` | Build the rubric and test cases without scoring |
+
+The orchestrated run does all of this internally, so these are for inspecting or rebuilding a stage on its own — none of them consume an evaluation.
 
 **Results** — free
 
@@ -108,9 +122,40 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 
 ### Not here yet
 
-Per-stage control — generating a business context, a benchmark, a baseline or an optimization pass on their own — is deliberately left out of v1. The orchestrated run covers all of it, and the per-stage endpoints stream newline-delimited JSON, which sits badly with MCP request timeouts. They will be added if there is demand for stage-at-a-time control.
+Running a baseline or an optimization pass on their own. Both stream progress over a long-running request, which sits badly with MCP request timeouts — the orchestrated run covers them, and reports progress by polling instead.
 
 There is also no tool to trigger the recommend stage: bench-api runs it only as part of an evaluation and exposes no endpoint to invoke it directly.
+
+## Hosted mode
+
+The same binary serves many users over HTTP instead of stdio:
+
+```bash
+BENCH_MCP_TRANSPORT=http PORT=8080 node dist/index.js
+```
+
+The difference is tenancy. Over stdio there is one user per process and the key comes from `BENCH_API_KEY`. Over HTTP the server is multi-tenant: each client supplies its own key in the `Authorization` header at connect time, and every session gets its own isolated server bound to that credential. There is no fallback key — an unauthenticated connection is refused, never served as somebody else.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /mcp` | Initialize a session, and send requests |
+| `GET /mcp` | Server-sent event stream for an open session |
+| `DELETE /mcp` | End a session |
+| `GET /healthz` | Health check (unauthenticated; reports open session count) |
+
+Idle sessions are swept after 30 minutes. Clients do not reliably disconnect — the SDK's `close()` sends no DELETE, and crashed clients send nothing — so without expiry every abandoned session would hold a user's API key in memory for the life of the process.
+
+Set `BENCH_MCP_ALLOWED_HOSTS` in production to enable DNS-rebinding protection.
+
+### OAuth
+
+Set `BENCH_MCP_AUTHKIT_DOMAIN` and `BENCH_MCP_RESOURCE_URL` and the server also accepts OAuth access tokens, so a user can connect by authorizing in a browser instead of pasting a key. API keys keep working — OAuth is how a person connects, keys remain the scripted path.
+
+bench-mcp is an OAuth *resource server* only: WorkOS AuthKit issues the tokens, and this server publishes where to get one (`/.well-known/oauth-protected-resource`, RFC 9728) and verifies the ones it receives. A token is accepted only if it was issued **for this server** (RFC 8707 audience binding) — without that check, a token minted for another AuthKit-protected resource would be replayable here.
+
+The verified token is then **exchanged** at bench-api for a separate, short-lived bench-api credential, which is what tool calls actually use. It is never forwarded as-is: the spec forbids passing the client's token to an upstream API, since that token is audienced for this server and bench-api would be honouring a credential never issued for it.
+
+Leaving either variable unset disables OAuth entirely, which is correct for stdio: the spec says stdio servers should take credentials from the environment rather than doing OAuth at all.
 
 ## Development
 

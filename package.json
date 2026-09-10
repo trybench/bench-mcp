@@ -1,9 +1,8 @@
 {
   "name": "@trybench/mcp",
   "version": "0.1.0",
-  "description": "MCP server for Bench — evaluate and optimize your LLM prompts from any MCP client",
-  "license": "UNLICENSED",
-  "private": true,
+  "description": "MCP server for Bench \u2014 evaluate and optimize your LLM prompts from any MCP client",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "bench-mcp": "dist/index.js"
@@ -25,6 +24,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "jose": "^6.2.12",
     "zod": "^4.5.4"
   },
   "devDependencies": {
@@ -32,5 +32,25 @@
     "msw": "^2.15.0",
     "typescript": "^5.9.0",
     "vitest": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trybench/bench-mcp.git"
+  },
+  "homepage": "https://github.com/trybench/bench-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/trybench/bench-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "bench",
+    "llm",
+    "evaluation",
+    "prompt-optimization",
+    "claude"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
