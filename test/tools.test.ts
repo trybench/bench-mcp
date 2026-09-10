@@ -500,3 +500,28 @@ describe("per-stage tools", () => {
     expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ url: "https://example.com/about" });
   });
 });
+
+describe("harness findings", () => {
+  // A score is only as trustworthy as the run behind it. We saw this
+  // live: a real evaluation returned 0.633 with model_substituted set,
+  // meaning it scored a default model rather than the one that call site
+  // actually runs. These fields already come back in the raw output; the
+  // descriptions are what make an agent look at them.
+  it("tells the agent to check run health before trusting a score", async () => {
+    const client = await connect(api);
+    const { tools } = await client.listTools();
+    const baseline = tools.find((t) => t.name === "bench_get_baseline");
+
+    expect(baseline?.description).toContain("model_substituted");
+    expect(baseline?.description).toContain("unscored_count");
+  });
+
+  it("tells the agent to check extraction confidence on a scan", async () => {
+    const client = await connect(api);
+    const { tools } = await client.listTools();
+    const scan = tools.find((t) => t.name === "bench_get_scan");
+
+    expect(scan?.description).toContain("config_consistency_flags");
+    expect(scan?.description).toContain("confidence");
+  });
+})
