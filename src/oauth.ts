@@ -1,5 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+import { API_KEY_PREFIX } from "./config.js";
+
 /**
  * OAuth resource-server support.
  *
@@ -136,14 +138,29 @@ export class TokenVerifier {
  * never issued for it. bench-api validates the audience and returns one
  * of its own short-lived tokens instead, and that is what tool calls use.
  *
- * Exchanged once per session and held only in that session's memory,
- * alongside the server it belongs to.
+ * Held only in the memory of the session it belongs to, and re-minted
+ * there as it nears expiry — bench-api's tokens are deliberately
+ * short-lived, so a single exchange at connect time would strand any
+ * session that outlives one.
  */
+export interface BenchToken {
+  token: string;
+  /** Seconds the token remains valid, as bench-api reports it. */
+  expiresIn: number;
+}
+
+/**
+ * How long a Bench token is assumed to last when bench-api does not say.
+ * Deliberately short: erring low costs an extra exchange, erring high
+ * costs the user a failed tool call.
+ */
+const FALLBACK_EXPIRES_IN_SECONDS = 300;
+
 export async function exchangeForBenchToken(
   baseUrl: string,
   accessToken: string,
   fetchImpl: typeof fetch = globalThis.fetch,
-): Promise<string> {
+): Promise<BenchToken> {
   const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/api/auth/mcp-token`, {
     method: "POST",
     headers: {
@@ -162,7 +179,115 @@ export async function exchangeForBenchToken(
     throw new Error(body?.error?.message ?? `token exchange failed (${response.status})`);
   }
 
-  const body = (await response.json()) as { token?: string };
+  const body = (await response.json()) as { token?: string; expires_in?: number };
   if (!body.token) throw new Error("token exchange returned no token");
-  return body.token;
+  const expiresIn =
+    typeof body.expires_in === "number" && body.expires_in > 0
+      ? body.expires_in
+      : FALLBACK_EXPIRES_IN_SECONDS;
+  return { token: body.token, expiresIn };
+}
+
+/**
+ * How long before expiry a Bench token is renewed.
+ *
+ * Renewing exactly at expiry loses the race against clock skew and the
+ * latency of the exchange itself, and the cost of losing it is a failed
+ * tool call in the middle of somebody's evaluation.
+ */
+const REFRESH_MARGIN_MS = 120_000;
+
+/**
+ * A session's bench-api credential, re-minted as it nears expiry.
+ *
+ * bench-api's MCP tokens last an hour by design. A session that polls a
+ * long evaluation stays alive far longer than that, so exchanging once at
+ * connect time and holding the result strands the session the moment the
+ * token lapses — every later call comes back unauthorized with nothing
+ * the user can do but reconnect.
+ *
+ * The client already holds a fresh access token: it refreshes with the
+ * authorization server on its own schedule and sends the current one on
+ * every request. `observe` takes that token as it goes past, and it is
+ * what a renewal is minted from.
+ */
+export class RefreshingCredential {
+  private token: string;
+  private refreshAt: number;
+  private accessToken: string;
+  /** Deduplicates concurrent renewals; a session can have calls in flight. */
+  private inflight: Promise<string> | undefined;
+
+  constructor(
+    private readonly deps: {
+      verifier: TokenVerifier;
+      baseUrl: string;
+      fetchImpl: typeof fetch;
+      /** The subject a renewal must still belong to. */
+      subject: string;
+    },
+    accessToken: string,
+    initial: BenchToken,
+  ) {
+    this.accessToken = accessToken;
+    this.token = initial.token;
+    this.refreshAt = nextRefresh(initial.expiresIn);
+  }
+
+  /**
+   * Records the access token carried by a live request on this session.
+   *
+   * Ignores a Bench API key: those are a different credential entirely
+   * and cannot be exchanged, and accepting one here would replace a
+   * usable access token with something a renewal could not use.
+   */
+  observe(accessToken: string): void {
+    if (accessToken.startsWith(API_KEY_PREFIX)) return;
+    this.accessToken = accessToken;
+  }
+
+  async get(): Promise<string> {
+    if (Date.now() < this.refreshAt) return this.token;
+    this.inflight ??= this.renew().finally(() => {
+      this.inflight = undefined;
+    });
+    return this.inflight;
+  }
+
+  private async renew(): Promise<string> {
+    let verified;
+    try {
+      verified = await this.deps.verifier.verify(this.accessToken);
+    } catch {
+      throw new Error(
+        "Your Bench sign-in has expired. Reconnect the Bench connector to sign in again.",
+      );
+    }
+
+    // A session is bound to the person who opened it. Renewing from a
+    // token for anyone else would silently re-key it to a different
+    // account, which is the one thing a session must never do.
+    if (verified.subject !== this.deps.subject) {
+      throw new Error("This session belongs to a different Bench account. Reconnect to continue.");
+    }
+
+    const minted = await exchangeForBenchToken(
+      this.deps.baseUrl,
+      this.accessToken,
+      this.deps.fetchImpl,
+    );
+    this.token = minted.token;
+    this.refreshAt = nextRefresh(minted.expiresIn);
+    return this.token;
+  }
+}
+
+/**
+ * When to renew a token that lasts `expiresIn` seconds. The half-life
+ * floor keeps a token shorter than the margin from being renewed on every
+ * single call.
+ */
+function nextRefresh(expiresIn: number): number {
+  const lifetimeMs = expiresIn * 1000;
+  return Date.now() + Math.max(lifetimeMs - REFRESH_MARGIN_MS, lifetimeMs / 2);
 }

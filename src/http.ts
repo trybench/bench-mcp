@@ -5,13 +5,16 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
+import type { AuthMode, CredentialSource } from "./client/http.js";
 import { API_KEY_PREFIX, type BaseConfig } from "./config.js";
 import {
   exchangeForBenchToken,
   type OAuthConfig,
   PROTECTED_RESOURCE_PATH,
   protectedResourceMetadata,
+  RefreshingCredential,
   TokenVerifier,
+  type VerifiedToken,
   wwwAuthenticate,
 } from "./oauth.js";
 import { createServer } from "./server.js";
@@ -38,6 +41,12 @@ interface Session {
   server: McpServer;
   /** Last time this session was touched, for idle expiry. */
   lastSeen: number;
+  /**
+   * Present for OAuth sessions only. It needs the access token from each
+   * live request to renew, so the request path hands it one; an API-key
+   * session has a credential that never expires and no such need.
+   */
+  credential?: RefreshingCredential;
 }
 
 /**
@@ -154,6 +163,12 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
         return;
       }
       session.lastSeen = Date.now();
+      // The client refreshes its own access token and sends the current
+      // one on every request. Capturing it here is what lets the session
+      // renew its bench-api token later, instead of dying with the first
+      // one an hour in.
+      const live = bearerToken(req);
+      if (live) session.credential?.observe(live);
       await session.transport.handleRequest(req, res);
       return;
     }
@@ -209,15 +224,18 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // with. For an API key that is the key itself; for an OAuth token it
     // is a *different* credential obtained by exchange, because the spec
     // forbids forwarding the client's token to an upstream API.
-    let upstreamCredential = credential;
+    let upstreamCredential: CredentialSource = credential;
+    let authMode: AuthMode = "api_key";
+    let refreshing: RefreshingCredential | undefined;
 
     if (!credential.startsWith(API_KEY_PREFIX)) {
       if (!verifier) {
         unauthorized(`Not a Bench API key — it should start with "${API_KEY_PREFIX}".`);
         return;
       }
+      let verified: VerifiedToken;
       try {
-        await verifier.verify(credential);
+        verified = await verifier.verify(credential);
       } catch {
         // Deliberately not echoing the verification error: it
         // distinguishes expired from wrong-audience from bad-signature,
@@ -228,11 +246,24 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
       }
 
       try {
-        upstreamCredential = await exchangeForBenchToken(
+        const minted = await exchangeForBenchToken(
           opts.baseUrl,
           credential,
           opts.fetchImpl ?? globalThis.fetch,
         );
+        const renewable = new RefreshingCredential(
+          {
+            verifier,
+            baseUrl: opts.baseUrl,
+            fetchImpl: opts.fetchImpl ?? globalThis.fetch,
+            subject: verified.subject,
+          },
+          credential,
+          minted,
+        );
+        refreshing = renewable;
+        upstreamCredential = () => renewable.get();
+        authMode = "oauth";
       } catch (error) {
         // A verified token that cannot be exchanged means the person is
         // authenticated but not entitled — no Bench account, or a plan
@@ -254,6 +285,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     const server = createServer({
       baseUrl: opts.baseUrl,
       apiKey: upstreamCredential,
+      authMode,
       timeoutMs: opts.timeoutMs,
       ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
     });
@@ -261,7 +293,12 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
-        sessions.set(id, { transport, server, lastSeen: Date.now() });
+        sessions.set(id, {
+          transport,
+          server,
+          lastSeen: Date.now(),
+          ...(refreshing !== undefined ? { credential: refreshing } : {}),
+        });
       },
       onsessionclosed: (id) => {
         dropSession(id);

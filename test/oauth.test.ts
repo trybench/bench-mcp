@@ -20,6 +20,10 @@ const BENCH_TOKEN = "bench-issued-session-token";
 
 const upstreamCalls: Array<{ path: string; auth: string | null }> = [];
 let exchangeStatus = 200;
+/** How long the fake bench-api says its token lasts, in seconds. */
+let exchangeExpiresIn = 3600;
+/** Bumped per exchange so a renewal is distinguishable from the first mint. */
+let mintCount = 0;
 
 let authServer: Server;
 let authkitDomain: string;
@@ -48,6 +52,8 @@ beforeEach(async () => {
 
   upstreamCalls.length = 0;
   exchangeStatus = 200;
+  exchangeExpiresIn = 3600;
+  mintCount = 0;
   mcpServer = createHttpTransportServer({
     baseUrl: "https://api.test.invalid",
     timeoutMs: 5000,
@@ -64,10 +70,11 @@ beforeEach(async () => {
             { status: exchangeStatus, headers: { "Content-Type": "application/json" } },
           );
         }
-        return new Response(JSON.stringify({ token: BENCH_TOKEN, expires_in: 3600 }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        mintCount += 1;
+        return new Response(
+          JSON.stringify({ token: `${BENCH_TOKEN}-${mintCount}`, expires_in: exchangeExpiresIn }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -88,10 +95,11 @@ async function mintToken(overrides: {
   audience?: string;
   issuer?: string;
   expiresIn?: string;
+  subject?: string;
 } = {}): Promise<string> {
   return new SignJWT({ scope: "openid profile", email: "user@example.com" })
     .setProtectedHeader({ alg: "RS256", kid: "test-key" })
-    .setSubject("user_01ABC")
+    .setSubject(overrides.subject ?? "user_01ABC")
     .setIssuer(overrides.issuer ?? authkitDomain)
     .setAudience(overrides.audience ?? RESOURCE_URL)
     .setIssuedAt()
@@ -276,7 +284,7 @@ describe("token exchange", () => {
     // token, not the one the client presented.
     const others = upstreamCalls.filter((c) => c.path !== "/api/auth/mcp-token");
     for (const call of others) {
-      expect(call.auth).toBe(`Bearer ${BENCH_TOKEN}`);
+      expect(call.auth).toBe(`Bearer ${BENCH_TOKEN}-1`);
     }
   });
 
@@ -317,5 +325,145 @@ describe("scope advertisement", () => {
     const res = await initialize();
 
     expect(res.headers.get("WWW-Authenticate")).toContain('scope="openid profile email"');
+  });
+});
+
+
+/**
+ * A hosted session outliving its bench-api token is the ordinary case,
+ * not an edge one: bench-api's MCP tokens last an hour and a session
+ * polling an evaluation stays open for as long as the run takes. These
+ * drive real tool calls over an established session rather than
+ * inspecting the credential object, because the bug was that the tool
+ * calls kept sending a token nobody had renewed.
+ */
+describe("credential renewal", () => {
+  /** Opens a session and returns its id, as a client's handshake does. */
+  async function openSession(token: string): Promise<string> {
+    const res = await initialize(token);
+    const sessionId = res.headers.get("mcp-session-id");
+    if (!sessionId) throw new Error(`no session id (status ${res.status})`);
+    await res.text();
+    // The transport will not serve requests until the handshake finishes.
+    const ack = await fetch(new URL("/mcp", mcpUrl), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "mcp-session-id": sessionId,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    });
+    await ack.text();
+    return sessionId;
+  }
+
+  /**
+   * Calls a read-only tool on an established session, as a poll would.
+   *
+   * The body is read to the end on purpose: the response is an SSE
+   * stream whose headers arrive before the handler has called bench-api,
+   * so asserting on upstream calls without draining it is a race.
+   */
+  async function callWhoami(
+    sessionId: string,
+    token: string,
+  ): Promise<{ status: number; body: string }> {
+    const res = await fetch(new URL("/mcp", mcpUrl), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "mcp-session-id": sessionId,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "bench_whoami", arguments: {} },
+      }),
+    });
+    return { status: res.status, body: await res.text() };
+  }
+
+  const upstreamAuth = (): Array<string | null> =>
+    upstreamCalls.filter((c) => c.path === "/api/auth/me").map((c) => c.auth);
+
+  it("keeps using the first token while it is still fresh", async () => {
+    const token = await mintToken();
+    const sessionId = await openSession(token);
+
+    await callWhoami(sessionId, token);
+    await callWhoami(sessionId, token);
+
+    expect(upstreamAuth()).toEqual([`Bearer ${BENCH_TOKEN}-1`, `Bearer ${BENCH_TOKEN}-1`]);
+    expect(mintCount).toBe(1);
+  });
+
+  // The reported failure: a session polling a long run passed the
+  // one-hour mark and every call after it came back unauthorized.
+  it("renews the bench-api token once it lapses, instead of failing the call", async () => {
+    exchangeExpiresIn = 1;
+    const token = await mintToken();
+    const sessionId = await openSession(token);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const res = await callWhoami(sessionId, token);
+
+    expect(res.status).toBe(200);
+    expect(mintCount).toBe(2);
+    expect(upstreamAuth()).toEqual([`Bearer ${BENCH_TOKEN}-2`]);
+  });
+
+  // A client refreshes with the authorization server on its own schedule,
+  // so by renewal time the token it presents is not the one the session
+  // opened with. Renewing from the stale one would exchange an expired
+  // token.
+  it("renews from the access token on the live request, not the one it opened with", async () => {
+    exchangeExpiresIn = 1;
+    const original = await mintToken();
+    const sessionId = await openSession(original);
+    const refreshed = await mintToken({ expiresIn: "2h" });
+    expect(refreshed).not.toBe(original);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await callWhoami(sessionId, refreshed);
+
+    const exchanges = upstreamCalls.filter((c) => c.path === "/api/auth/mcp-token");
+    expect(exchanges).toHaveLength(2);
+    expect(exchanges[1]?.auth).toBe(`Bearer ${refreshed}`);
+  });
+
+  // A session is bound to whoever opened it. Renewing from someone else's
+  // token would hand their account to this session.
+  it("refuses to renew onto a different account", async () => {
+    exchangeExpiresIn = 1;
+    const token = await mintToken();
+    const sessionId = await openSession(token);
+    const somebodyElse = await mintToken({ subject: "user_02XYZ" });
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const res = await callWhoami(sessionId, somebodyElse);
+
+    expect(res.body).toContain("different Bench account");
+    expect(mintCount).toBe(1);
+    expect(upstreamAuth()).toEqual([]);
+  });
+
+  // An API key on an OAuth session is not a credential a renewal can use;
+  // storing it would destroy the access token the renewal needs.
+  it("ignores an API key presented on an OAuth session", async () => {
+    exchangeExpiresIn = 1;
+    const token = await mintToken();
+    const sessionId = await openSession(token);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const res = await callWhoami(sessionId, "bench_sk_notatoken");
+
+    expect(res.status).toBe(200);
+    const exchanges = upstreamCalls.filter((c) => c.path === "/api/auth/mcp-token");
+    expect(exchanges[1]?.auth).toBe(`Bearer ${token}`);
   });
 });
