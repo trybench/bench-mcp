@@ -83,7 +83,21 @@ export class BenchClient {
     this.fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   }
 
+  /** Performs the request and hands back the raw Response, for callers
+   * that need to read a stream rather than a parsed body. Errors are
+   * still translated, so a failure before streaming starts behaves
+   * exactly like any other request. */
+  async stream(path: string, opts: RequestOptions = {}): Promise<Response> {
+    return this.send(path, opts);
+  }
+
   async request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+    const response = await this.send(path, opts);
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  }
+
+  private async send(path: string, opts: RequestOptions = {}): Promise<Response> {
     const url = new URL(this.baseUrl + path);
     for (const [key, value] of Object.entries(opts.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
@@ -130,8 +144,7 @@ export class BenchClient {
 
     if (!response.ok) throw await this.toError(response);
 
-    if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+    return response;
   }
 
   /**
