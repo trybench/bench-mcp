@@ -5,13 +5,17 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
+import type { AuthMode, CredentialSource } from "./client/http.js";
 import { API_KEY_PREFIX, type BaseConfig } from "./config.js";
 import {
+  CredentialRefreshError,
   exchangeForBenchToken,
   type OAuthConfig,
   PROTECTED_RESOURCE_PATH,
   protectedResourceMetadata,
+  RefreshingCredential,
   TokenVerifier,
+  type VerifiedToken,
   wwwAuthenticate,
 } from "./oauth.js";
 import { createServer } from "./server.js";
@@ -38,6 +42,12 @@ interface Session {
   server: McpServer;
   /** Last time this session was touched, for idle expiry. */
   lastSeen: number;
+  /**
+   * Present for OAuth sessions only. It needs the access token from each
+   * live request to renew, so the request path hands it one; an API-key
+   * session has a credential that never expires and no such need.
+   */
+  credential?: RefreshingCredential;
 }
 
 /**
@@ -154,6 +164,47 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
         return;
       }
       session.lastSeen = Date.now();
+
+      // Renewal happens here, before the transport takes over, because
+      // this is the last point at which a failure can still be spoken as
+      // HTTP. A client refreshes its access token when it is challenged
+      // with a 401 and not before, so a renewal that needs a fresher
+      // token has to be able to issue that challenge — inside a tool
+      // call it could only throw, and the session would stay broken.
+      const live = bearerToken(req);
+      if (live) session.credential?.observe(live);
+
+      if (session.credential?.isDue) {
+        try {
+          await session.credential.get();
+        } catch (error) {
+          if (error instanceof CredentialRefreshError && error.kind === "forbidden") {
+            writeJson(res, 403, {
+              jsonrpc: "2.0",
+              error: { code: -32002, message: error.message },
+              id: null,
+            });
+            return;
+          }
+          // The client re-authenticates and replays the request, so this
+          // is recovery rather than an error the user has to act on.
+          res.setHeader(
+            "WWW-Authenticate",
+            opts.oauth ? wwwAuthenticate(opts.oauth) : 'Bearer realm="bench"',
+          );
+          writeJson(res, 401, {
+            jsonrpc: "2.0",
+            error: {
+              code: -32001,
+              message:
+                error instanceof Error ? error.message : "could not renew authorization with Bench",
+            },
+            id: null,
+          });
+          return;
+        }
+      }
+
       await session.transport.handleRequest(req, res);
       return;
     }
@@ -209,15 +260,18 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // with. For an API key that is the key itself; for an OAuth token it
     // is a *different* credential obtained by exchange, because the spec
     // forbids forwarding the client's token to an upstream API.
-    let upstreamCredential = credential;
+    let upstreamCredential: CredentialSource = credential;
+    let authMode: AuthMode = "api_key";
+    let refreshing: RefreshingCredential | undefined;
 
     if (!credential.startsWith(API_KEY_PREFIX)) {
       if (!verifier) {
         unauthorized(`Not a Bench API key — it should start with "${API_KEY_PREFIX}".`);
         return;
       }
+      let verified: VerifiedToken;
       try {
-        await verifier.verify(credential);
+        verified = await verifier.verify(credential);
       } catch {
         // Deliberately not echoing the verification error: it
         // distinguishes expired from wrong-audience from bad-signature,
@@ -228,11 +282,24 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
       }
 
       try {
-        upstreamCredential = await exchangeForBenchToken(
+        const minted = await exchangeForBenchToken(
           opts.baseUrl,
           credential,
           opts.fetchImpl ?? globalThis.fetch,
         );
+        const renewable = new RefreshingCredential(
+          {
+            verifier,
+            baseUrl: opts.baseUrl,
+            fetchImpl: opts.fetchImpl ?? globalThis.fetch,
+            subject: verified.subject,
+          },
+          credential,
+          minted,
+        );
+        refreshing = renewable;
+        upstreamCredential = () => renewable.get();
+        authMode = "oauth";
       } catch (error) {
         // A verified token that cannot be exchanged means the person is
         // authenticated but not entitled — no Bench account, or a plan
@@ -254,6 +321,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     const server = createServer({
       baseUrl: opts.baseUrl,
       apiKey: upstreamCredential,
+      authMode,
       timeoutMs: opts.timeoutMs,
       ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
     });
@@ -261,7 +329,12 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
-        sessions.set(id, { transport, server, lastSeen: Date.now() });
+        sessions.set(id, {
+          transport,
+          server,
+          lastSeen: Date.now(),
+          ...(refreshing !== undefined ? { credential: refreshing } : {}),
+        });
       },
       onsessionclosed: (id) => {
         dropSession(id);

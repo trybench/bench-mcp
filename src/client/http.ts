@@ -47,10 +47,26 @@ export class BenchApiError extends Error {
   }
 }
 
+/**
+ * How this client's credential was obtained, which decides what an
+ * expired one means. An API key is a fixed string the user pasted; an
+ * OAuth credential is minted per session and refreshed underneath, so the
+ * two failure modes need different remedies.
+ */
+export type AuthMode = "api_key" | "oauth";
+
+/**
+ * The credential to send. A plain string for a fixed key; a function when
+ * the credential is short-lived and the caller re-mints it — it is
+ * awaited per request, so the caller controls caching and expiry.
+ */
+export type CredentialSource = string | (() => Promise<string>);
+
 export interface BenchClientOptions {
   baseUrl: string;
-  apiKey: string;
+  apiKey: CredentialSource;
   timeoutMs?: number;
+  authMode?: AuthMode;
   /** Injectable for tests; defaults to the global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -70,7 +86,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class BenchClient {
   private readonly baseUrl: string;
-  private readonly apiKey: string;
+  private readonly apiKey: CredentialSource;
+  private readonly authMode: AuthMode;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
@@ -79,6 +96,7 @@ export class BenchClient {
     // normalize and others don't.
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.apiKey = opts.apiKey;
+    this.authMode = opts.authMode ?? "api_key";
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   }
@@ -97,6 +115,18 @@ export class BenchClient {
     return (await response.json()) as T;
   }
 
+  /**
+   * Resolves the bearer token for one request.
+   *
+   * A hosted session's Bench token is short-lived, so it cannot be read
+   * once and kept: a session that outlives it — polling a long
+   * evaluation, say — would send an expired token on every later call.
+   * Resolving per request lets the caller re-mint transparently.
+   */
+  private async credential(): Promise<string> {
+    return typeof this.apiKey === "string" ? this.apiKey : this.apiKey();
+  }
+
   private async send(path: string, opts: RequestOptions = {}): Promise<Response> {
     const url = new URL(this.baseUrl + path);
     for (const [key, value] of Object.entries(opts.query ?? {})) {
@@ -104,7 +134,7 @@ export class BenchClient {
     }
 
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
+      Authorization: `Bearer ${await this.credential()}`,
       Accept: "application/json",
     };
     // FormData must set its own multipart boundary, so only JSON bodies
@@ -175,7 +205,9 @@ export class BenchClient {
   private explain(code: string, message: string): string {
     switch (code) {
       case "unauthorized":
-        return `${message}. Check BENCH_API_KEY — generate a key in Bench account settings.`;
+        return this.authMode === "oauth"
+          ? `${message}. Reconnect the Bench connector to sign in again.`
+          : `${message}. Check BENCH_API_KEY — generate a key in Bench account settings.`;
       case "key_revoked":
         return `${message}. Generate a new key in Bench account settings.`;
       case "no_active_plan":
