@@ -282,6 +282,32 @@ describe("server icon", () => {
     expect(themed).not.toContain("<rect");
   });
 
+  // Without this, a wrong logo is indistinguishable from a cached one:
+  // there is no way to tell whether the client ever looked.
+  it("counts which icon path a client actually fetched", async () => {
+    await fetch(new URL("/icon.svg", baseUrl));
+    await fetch(new URL("/favicon.ico", baseUrl));
+    await fetch(new URL("/favicon.ico", baseUrl));
+
+    const health = (await (await fetch(new URL("/healthz", baseUrl))).json()) as {
+      iconFetches?: Record<string, number>;
+    };
+    expect(health.iconFetches).toMatchObject({ "/icon.svg": 1, "/favicon.ico": 2 });
+  });
+
+  // The icons field only exists from revision 2025-11-25, so which
+  // revision a client asks for decides whether declaring it does anything.
+  it("records the protocol revision a client asks for", async () => {
+    await connectWithKey("bench_sk_alice");
+
+    const health = (await (await fetch(new URL("/healthz", baseUrl))).json()) as {
+      protocolVersions?: Record<string, number>;
+    };
+    const seen = Object.keys(health.protocolVersions ?? {});
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
   it("advertises both to the client, tagged by theme", async () => {
     const client = await connectWithKey("bench_sk_alice");
     const info = client.getServerVersion() as {
