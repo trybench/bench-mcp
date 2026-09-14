@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { type AuthMode, BenchClient, type CredentialSource } from "./client/http.js";
+import { iconsFor } from "./icon.js";
 import { registerConnectTools } from "./tools/connect.js";
 import { registerPrTools } from "./tools/pr.js";
 import { registerResultTools } from "./tools/results.js";
@@ -14,6 +15,11 @@ export interface CreateServerOptions {
   apiKey: CredentialSource;
   /** Decides what an expired credential tells the user to do. */
   authMode?: AuthMode;
+  /**
+   * This server's own public origin, when it has one. Used so a client is
+   * pointed at this deployment's icon rather than the hosted server's.
+   */
+  publicOrigin?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -29,7 +35,13 @@ export interface CreateServerOptions {
  */
 export function createServer(opts: CreateServerOptions): McpServer {
   const server = new McpServer(
-    { name: "bench-mcp", version: "0.1.0" },
+    {
+      name: "bench-mcp",
+      title: "Bench",
+      version: "0.1.0",
+      websiteUrl: "https://usebench.ai",
+      icons: iconsFor(opts.publicOrigin),
+    },
     {
       instructions: [
         "Bench evaluates and optimizes LLM prompts: it finds the prompts in a codebase, works out what good output means for each one, scores the current prompt, then searches for a better prompt and model.",
