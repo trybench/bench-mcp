@@ -7,6 +7,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AuthMode, CredentialSource } from "./client/http.js";
 import { API_KEY_PREFIX, type BaseConfig } from "./config.js";
+import { ICON_DARK, ICON_DARK_PATH, ICON_LIGHT, ICON_LIGHT_PATH } from "./icon.js";
 import {
   CredentialRefreshError,
   exchangeForBenchToken,
@@ -133,6 +134,20 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // and this reveals nothing.
     if (url.pathname === "/healthz") {
       writeJson(res, 200, { status: "ok", sessions: sessions.size, ...counts });
+      return;
+    }
+
+    // The mark a client shows next to this server's name. Unauthenticated
+    // like /healthz — it is branding, and a client fetches it before it
+    // has any credential to present.
+    if (url.pathname === ICON_LIGHT_PATH || url.pathname === ICON_DARK_PATH) {
+      res.writeHead(200, {
+        "Content-Type": "image/svg+xml",
+        // Immutable in practice: a changed mark gets a changed path,
+        // since clients and directories cache icons aggressively.
+        "Cache-Control": "public, max-age=86400",
+      });
+      res.end(url.pathname === ICON_DARK_PATH ? ICON_DARK : ICON_LIGHT);
       return;
     }
 
@@ -334,6 +349,9 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
       baseUrl: opts.baseUrl,
       apiKey: upstreamCredential,
       authMode,
+      // A hosted server knows its own address from the OAuth resource
+      // URL, so it advertises its own icon rather than the shared one.
+      ...(opts.oauth !== undefined ? { publicOrigin: opts.oauth.resourceUrl } : {}),
       timeoutMs: opts.timeoutMs,
       ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
     });

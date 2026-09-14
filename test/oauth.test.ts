@@ -352,6 +352,20 @@ describe("token exchange", () => {
 });
 
 
+describe("icon advertisement", () => {
+  // A hosted deployment serves its own copy of the mark. Pointing every
+  // deployment at the production server would make staging and any
+  // self-hosted install depend on ours being reachable.
+  it("points at this deployment's own origin, not the shared one", async () => {
+    const res = await initialize(await mintToken());
+
+    const body = await res.text();
+    expect(body).toContain(`${RESOURCE_URL}/icon.svg`);
+    expect(body).toContain(`${RESOURCE_URL}/icon-dark.svg`);
+    expect(body).not.toContain("mcp.usebench.ai");
+  });
+});
+
 describe("scope advertisement", () => {
   // The bug this fixes: without scopes_supported a client omits the scope
   // parameter entirely, the authorization server issues a token with no
