@@ -234,3 +234,43 @@ describe("renewal counters", () => {
     expect(body).not.toContain("alice");
   });
 });
+
+/**
+ * The mark a client shows beside the server's name. Before this, Bench
+ * advertised no icon at all and clients fell back to whatever they could
+ * derive, which is how the wrong logo ended up on screen.
+ */
+describe("server icon", () => {
+  it("serves the mark unauthenticated, as a client fetches it before signing in", async () => {
+    const res = await fetch(new URL("/icon.svg", baseUrl));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await res.text()).toContain("<svg");
+  });
+
+  // A single dark mark is invisible on a dark background, which is the
+  // failure mode that makes a server look broken rather than unbranded.
+  it("serves a light and a dark variant that actually differ", async () => {
+    const light = await (await fetch(new URL("/icon.svg", baseUrl))).text();
+    const dark = await (await fetch(new URL("/icon-dark.svg", baseUrl))).text();
+
+    expect(light).toContain("#0b0d0c");
+    expect(dark).toContain("#ffffff");
+    expect(light).not.toBe(dark);
+  });
+
+  it("advertises both to the client, tagged by theme", async () => {
+    const client = await connectWithKey("bench_sk_alice");
+    const info = client.getServerVersion() as {
+      icons?: Array<{ src: string; theme?: string; mimeType?: string }>;
+    };
+
+    expect(info.icons?.map((i) => i.theme)).toEqual(["light", "dark"]);
+    for (const icon of info.icons ?? []) {
+      expect(icon.mimeType).toBe("image/svg+xml");
+      // Absolute: stdio has no origin of its own to resolve against.
+      expect(icon.src).toMatch(/^https:\/\//);
+    }
+  });
+});
