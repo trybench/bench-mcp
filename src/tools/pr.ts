@@ -12,7 +12,7 @@ export function registerPrTools(server: McpServer, context: ToolContext): void {
     name: "bench_open_prompt_pr",
     title: "Open a pull request with the improved prompt",
     description:
-      "Open a pull request applying an optimized prompt to the repository. Take the winning prompt from bench_get_optimization and write it back to the file the call site lives in.\n\nOnly works for connected repositories — uploaded prompt sets have no repository to open a PR against, so show the user the optimized prompt instead.",
+      "Publish supplied file changes to a GitHub branch and open a pull request. This is an external write: obtain explicit approval first; never call during local-only review. This endpoint does not run tests or validate code. Read bench_get_fix_brief and independently validate any code edits first. Preserve complete file contents and verify the base has not changed. Only connected repositories are supported; for uploaded prompts show the proposed prompt instead. Never call a published proposal a deployed or verified production fix.",
     inputSchema: openPromptPrInput,
     handler: async (args, ctx) => {
       if ((args.owner as string) === "upload") {
