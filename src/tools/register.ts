@@ -39,9 +39,8 @@ export function registerTool(
       inputSchema: definition.inputSchema,
       annotations: {
         readOnlyHint: definition.readOnly ?? false,
-        // Nothing here destroys data; the worst case is spending an
-        // evaluation from the plan's balance.
-        destructiveHint: false,
+        // Writes can replace saved context, criteria or repository files.
+        destructiveHint: !(definition.readOnly ?? false),
         openWorldHint: true,
       },
     },
@@ -54,6 +53,7 @@ export function registerTool(
       } catch (error) {
         return {
           isError: true,
+          ...(error instanceof BenchApiError ? { structuredContent: { error: { code: error.code, message: error.message, retryable: !error.isTerminal } } } : {}),
           content: [{ type: "text", text: describeError(error) }],
         };
       }

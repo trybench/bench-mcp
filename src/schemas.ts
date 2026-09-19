@@ -65,6 +65,7 @@ export const uploadPromptsInput = {
 };
 
 export const startEvaluationInput = {
+  ai_system_id: z.number().int().positive().optional().describe("Recognized AI system. Pins its context and prompt-specific golden cases and criteria for this run."),
   repo_full_name: z
     .string()
     .min(1)

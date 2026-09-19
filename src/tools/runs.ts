@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
 import {
-  noInput,
   repoBranchCallSite,
   rerunEvaluationInput,
   runIdInput,
@@ -10,28 +10,19 @@ import {
 } from "../schemas.js";
 import { registerTool, type ToolContext } from "./register.js";
 
-/**
- * Group C — run. One evaluation covers benchmark, baseline, optimize and
- * recommend.
- *
- * The review gate is the thing to understand here: every run pauses at
- * "awaiting_review" between generating its test cases and scoring against
- * them, unconditionally, and waits up to 48 hours. An agent that starts a
- * run and never reviews it has not run an evaluation — it has parked one.
- * The tool descriptions say so, because the model is the one that has to
- * get this sequence right.
- */
+/** Background runs proceed directly; the review tool supports legacy paused runs. */
 export function registerRunTools(server: McpServer, context: ToolContext): void {
   registerTool(server, context, {
     name: "bench_start_evaluation",
     title: "Start an evaluation",
     description:
-      "Evaluate and optimize one or more prompts: generate a rubric and test cases, score the current prompt, then search for a better prompt and model. Returns immediately with run ids — the work continues in the background.\n\nThe run will PAUSE at status \"awaiting_review\" until you call bench_submit_run_review. Poll bench_get_evaluation, read the test cases with bench_get_eval_benchmark, then submit the review. A run left unreviewed fails after 48 hours.\n\nConsumes one evaluation from the plan balance per prompt.",
+      "Evaluate and optimize extracted prompts in the background. Returns run IDs immediately. No rubric review is required. Pass ai_system_id to pin its context and prompt-specific golden cases and criteria. Check bench_evaluation_allowance and confirm spending first. Each fresh baseline consumes one evaluation. Poll bench_get_evaluation, then read bench_get_evaluation_artifacts.",
     inputSchema: startEvaluationInput,
     handler: async (args, ctx) =>
       ctx.client.request("/api/evaluation-runs", {
         method: "POST",
         body: {
+          ai_system_id: args.ai_system_id,
           repo_full_name: args.repo_full_name,
           branch: args.branch,
           prompts: args.prompts,
@@ -45,7 +36,7 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
     name: "bench_get_evaluation",
     title: "Get one evaluation run",
     description:
-      "Return one run's current status, stage and scores. This is the polling tool — statuses are \"running\", \"awaiting_review\" (act on it — the run is blocked until you do), and then one of the terminal three: \"completed\", \"failed\" or \"canceled\".",
+      "Return one run\'s status, stage and scores. Poll queued or running runs. Terminal statuses are \"completed\", \"failed\" and \"canceled\". Only legacy runs may report awaiting_review.",
     inputSchema: runIdInput,
     readOnly: true,
     handler: async (args, ctx) => ctx.client.request(`/api/evaluation-runs/${args.run_id as number}`),
@@ -56,16 +47,16 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
     title: "List evaluation runs",
     description:
       "List recent evaluation runs with their status and headline scores. Use this to find a run whose id you do not have; use bench_get_evaluation to follow one you do.",
-    inputSchema: noInput,
+    inputSchema: { ai_system_id: z.number().int().positive().optional() },
     readOnly: true,
-    handler: async (_args, ctx) => ctx.client.request("/api/evaluation-runs"),
+    handler: async (args, ctx) => ctx.client.request("/api/evaluation-runs", { query: { ai_system_id: args.ai_system_id as number | undefined } }),
   });
 
   registerTool(server, context, {
     name: "bench_get_eval_benchmark",
     title: "Get the rubric and test cases",
     description:
-      "Return the scoring rubric and generated test cases for a call site. Read this while a run waits at \"awaiting_review\": the test cases are what the prompt will be scored against, and reviewing them is the point of the pause.",
+      "Return the latest scoring rubric and generated cases for a call site. For a particular historical run use bench_get_evaluation_artifacts. New runs do not require pre-scoring review.",
     inputSchema: repoBranchCallSite,
     readOnly: true,
     handler: async (args, ctx) =>
@@ -79,7 +70,7 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
     name: "bench_submit_run_review",
     title: "Approve the test cases and continue",
     description:
-      "Release a run waiting at \"awaiting_review\" by submitting the test cases it should score against. Pass them back from bench_get_eval_benchmark — unchanged to accept them, or edited and filtered to improve them. The run resumes into scoring as soon as this returns.",
+      "Release a run waiting at \"awaiting_review\" by submitting the test cases it should score against. Pass them back from bench_get_eval_benchmark ; unchanged to accept them, or edited and filtered to improve them. The run resumes into scoring as soon as this returns.",
     inputSchema: submitReviewInput,
     handler: async (args, ctx) =>
       ctx.client.request(`/api/evaluation-runs/${args.run_id as number}/review`, {
@@ -92,7 +83,7 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
     name: "bench_rerun_evaluation",
     title: "Re-run an evaluation after changing a prompt",
     description:
-      "Re-score a prompt against the latest scan of its repository — the loop after you act on a recommendation. Push the change first: this reads the repository, not your working copy, so re-scan with bench_scan_repo before re-running.\n\nOnly the stages your change invalidated actually re-run. An unchanged prompt reuses every stored artifact and finishes in seconds at no cost, so re-running to confirm nothing regressed is cheap.\n\nLike a first run, this pauses at \"awaiting_review\" and needs bench_submit_run_review before it can finish.",
+      "Re-score a prompt against the latest scan of its repository ; the loop after you act on a recommendation. Push the change first: this reads the repository, not your working copy, so re-scan with bench_scan_repo before re-running.\n\nChanged stages run again. A reused baseline consumes no additional evaluation, but starting any new run requires available allowance. New runs proceed without mandatory rubric review. Read bench_evaluation_allowance first and confirm any new spend.",
     inputSchema: rerunEvaluationInput,
     handler: async (args, ctx) =>
       ctx.client.request(`/api/evaluation-runs/${args.run_id as number}/rerun`, {

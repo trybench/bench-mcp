@@ -81,7 +81,7 @@ describe("tool surface", () => {
   // GET /api/evaluation-runs/{id} to bench-api earned bench_get_evaluation
   // its own tool, where the plan had folded single-run polling into
   // bench_list_evaluations.
-  it("exposes exactly the twenty-four agreed tools", async () => {
+  it("exposes exactly the forty-one agreed tools", async () => {
     const client = await connect(api);
     const { tools } = await client.listTools();
 
@@ -110,7 +110,24 @@ describe("tool surface", () => {
       "bench_submit_run_review",
       "bench_upload_prompts",
       "bench_whoami",
-    ]);
+      "bench_list_systems",
+      "bench_get_system",
+      "bench_get_system_context",
+      "bench_list_context_sources",
+      "bench_save_system_context",
+      "bench_list_test_library",
+      "bench_save_test_case",
+      "bench_save_criterion",
+      "bench_list_datasets",
+      "bench_import_dataset_cases",
+      "bench_get_evaluation_artifacts",
+      "bench_evaluation_allowance",
+      "bench_list_production_traces",
+      "bench_get_production_trace",
+      "bench_check_production_span",
+      "bench_get_production_check",
+      "bench_retry_production_check",
+    ].sort());
   });
 
   it("marks read-only tools so clients can auto-approve them", async () => {
@@ -565,5 +582,61 @@ describe("expired-credential guidance", () => {
 
     expect(message).toContain("Reconnect");
     expect(message).not.toContain("BENCH_API_KEY");
+  });
+});
+
+describe("system context tools", () => {
+  it("queues production checks without inventing sharing consent", async () => {
+    api.on("POST", "/api/traces/3/spans/4/evaluate", { job: { id: 5, status: "queued" } }, 202);
+    api.on("GET", "/api/traces/checks/5", { job: { id: 5, status: "completed" } });
+    api.on("POST", "/api/traces/checks/5/retry", { job: { id: 5, status: "queued" } }, 202);
+    const client = await connect(api);
+    const result = await client.callTool({ name: "bench_check_production_span", arguments: { trace_id: 3, span_id: 4, component_id: 9 } });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ component_id: 9, provider: "rubric", share_with_typesafe: false });
+    await client.callTool({ name: "bench_get_production_check", arguments: { job_id: 5 } });
+    await client.callTool({ name: "bench_retry_production_check", arguments: { job_id: 5 } });
+    expect(api.calls[1]?.url).toBe("/api/traces/checks/5");
+    expect(api.calls[2]?.method).toBe("POST");
+    expect(api.calls[2]?.url).toBe("/api/traces/checks/5/retry");
+  });
+  it("preserves structured expected outputs and optimistic revisions", async () => {
+    api.on("PUT", "/api/ai-systems/7/context/sources", { context: { version: 3 } });
+    const client = await connect(api);
+    const result = await client.callTool({ name: "bench_save_test_case", arguments: {
+      system_id: 7, component_id: 19, expected_version: 2, source_id: "manual-library-refund",
+      title: "Refund exception", input: "Refund order", expected: { allowed: false, amount: 0 },
+      history: [{ role: "user", content: "Already refunded" }], variables: { order: 42 },
+    } });
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(api.calls[0]?.body ?? "{}");
+    expect(body.expected_version).toBe(2);
+    expect(JSON.parse(body.source.text)).toMatchObject({ expected: { allowed: false, amount: 0 }, component_id: 19, enabled: true });
+  });
+  it("pins the system and filters its evaluation history", async () => {
+    api.on("POST", "/api/evaluation-runs", { runs: [] });
+    api.on("GET", "/api/evaluation-runs", { runs: [] });
+    const client = await connect(api);
+    await client.callTool({ name: "bench_start_evaluation", arguments: { ai_system_id: 7, repo_full_name: "org/repo", branch: "main", prompts: [{call_site_id:"a:1"}] } });
+    expect(JSON.parse(api.calls[0]?.body ?? "{}").ai_system_id).toBe(7);
+    await client.callTool({ name: "bench_list_evaluations", arguments: { ai_system_id: 7 } });
+    expect(api.calls[1]?.url).toBe("/api/evaluation-runs?ai_system_id=7");
+  });
+  it.each(["evaluations_exhausted", "test_case_limit_exceeded", "key_evaluations_exhausted"])("does not retry %s or charge the user", async (code) => {
+    api.on("POST", "/api/evaluation-runs", { error: { code, message: "Limit reached." } }, 403);
+    const client = await connect(api);
+    const result = await client.callTool({ name: "bench_start_evaluation", arguments: { repo_full_name: "org/repo", branch: "main", prompts: [{call_site_id:"a:1"}] } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({error:{code,retryable:false}});
+    expect(resultText(result as never)).toContain(code === "key_evaluations_exhausted" ? "key owner" : "bench_evaluation_allowance");
+    expect(api.calls).toHaveLength(1);
+  });
+  it("does not expose payment or destructive source-deletion tools", async () => {
+    const client = await connect(api);
+    const {tools} = await client.listTools();
+    expect(tools.some(t => /checkout|subscribe|delete_source/.test(t.name))).toBe(false);
+    expect(tools.find(t => t.name === "bench_save_criterion")?.annotations?.readOnlyHint).toBe(false);
+    expect(tools.find(t => t.name === "bench_get_evaluation_artifacts")?.annotations?.readOnlyHint).toBe(true);
+    expect(client.getInstructions()).not.toContain("WILL pause");
   });
 });

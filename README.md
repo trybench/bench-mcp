@@ -50,17 +50,16 @@ claude mcp add bench --env BENCH_API_KEY=bench_sk_... -- npx -y @trybench/mcp
 bench_scan_repo          find the prompts in a repo branch
 bench_get_scan           pick a call site to evaluate
 bench_start_evaluation   kick off benchmark → baseline → optimize → recommend
-bench_get_evaluation     poll … status becomes "awaiting_review"
-bench_get_eval_benchmark read the generated test cases
-bench_submit_run_review  approve or edit them; the run continues
+bench_get_evaluation     poll background status
+bench_get_evaluation_artifacts read the exact saved criteria and cases
 bench_get_evaluation     poll … status becomes "completed"
 bench_get_optimization   read the winning prompt and model
 bench_open_prompt_pr     open a PR applying it
 ```
 
-**Every run pauses for review.** Between generating test cases and scoring against them, a run stops at `awaiting_review` and waits — unconditionally, on every run, including cached reruns. It fails after 48 hours if nothing reviews it. This is the step most likely to trip up an agent loop: a run that seems stuck is usually a run waiting for `bench_submit_run_review`.
+**New runs proceed without mandatory review.** Read `bench_evaluation_allowance` and confirm spending before starting. Only a legacy run actually reporting `awaiting_review` needs `bench_submit_run_review`. Connecting MCP is available on every plan; evaluations obey the shared account balance and key cap.
 
-Reviewing test cases is also the part an agent is genuinely good at, which is much of the reason this server exists.
+Use system context and the test library for optional corrections. Those changes affect future benches, not historical scores. This local branch exposes 41 tools and has not been published.
 
 ## Tools
 
@@ -91,7 +90,7 @@ Reviewing test cases is also the part an agent is genuinely good at, which is mu
 | `bench_get_evaluation` | One run's status and scores |
 | `bench_list_evaluations` | Recent runs |
 | `bench_get_eval_benchmark` | The rubric and test cases |
-| `bench_submit_run_review` | Release the review gate |
+| `bench_submit_run_review` | Continue a legacy run waiting for review |
 | `bench_rerun_evaluation` | Re-score a prompt after changing it — unchanged stages are reused and free |
 | `bench_cancel_evaluation` | Stop a run |
 
@@ -119,6 +118,26 @@ The orchestrated run does all of this internally, so these are for inspecting or
 | Tool | Does |
 | --- | --- |
 | `bench_open_prompt_pr` | Open a PR with the improved prompt |
+
+### Systems, context, datasets and production
+
+`bench_list_systems` and `bench_get_system` expose discovery and component IDs.
+`bench_get_system_context`, `bench_list_context_sources`, and `bench_save_system_context`
+read/update versioned understanding. `bench_list_test_library`, `bench_save_test_case`,
+and `bench_save_criterion` preserve explicit prompt-specific examples and rules.
+`bench_list_datasets` and `bench_import_dataset_cases` promote a selected immutable
+dataset mapping to the library without replacing corrections or restoring deleted cases.
+
+`bench_list_production_traces`, `bench_get_production_trace`,
+`bench_check_production_span`, `bench_get_production_check`, and
+`bench_retry_production_check` expose background production checks. Each executed
+check uses one evaluation. TypeSafe sharing requires explicit consent and configured
+server credentials. Model probabilities are never verified golden labels.
+
+`bench_evaluation_allowance` reports remaining balance, key cap and upgrade actions.
+No tool purchases a plan. `bench_get_evaluation_artifacts` reads exact historical
+criteria, cases, comparisons and recommendations. Repository restrictions apply to
+the entire system and to source traces, not just the selected prompt.
 
 ### Not here yet
 
