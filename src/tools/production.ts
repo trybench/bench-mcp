@@ -5,6 +5,12 @@ import { registerTool, type ToolContext } from "./register.js";
 /** Production capture and evaluation remain separate API responsibilities. */
 export function registerProductionTools(server: McpServer, context: ToolContext): void {
   registerTool(server, context, {
+    name: "bench_get_runtime_evaluations", title: "Read whole-application runtime results", readOnly: true,
+    inputSchema: { ai_system_id: z.number().int().positive(), offset: z.number().int().min(0).max(10000).default(0) },
+    description: "No evaluation credits consumed. First publish an SDK runtime report for this system. Read client-reported application executions, recorded trajectories, deterministic checks and tool/harness findings. These are not independently hosted validation or proof of production repair. Use failed case evidence to prepare a coding-agent brief; never modify the expected outcomes to make a fix pass.",
+    handler: async (args, ctx) => ctx.client.request(`/api/ai-systems/${args.ai_system_id as number}/runtime-evaluations`, { query: { offset: args.offset as number } }),
+  });
+  registerTool(server, context, {
     name: "bench_list_production_traces", title: "List recent production traces", readOnly: true,
     inputSchema: { repo_full_name: z.string().min(1), branch: z.string().min(1), limit: z.number().int().min(1).max(100).default(20) },
     description: "Read recent trace metadata for one repository and branch. No evaluation starts. Raw traces are retained for 30 days; this is not a complete historical export.",
@@ -18,7 +24,7 @@ export function registerProductionTools(server: McpServer, context: ToolContext)
   });
   registerTool(server, context, {
     name: "bench_check_production_span", title: "Queue a production check",
-    inputSchema: { trace_id: z.number().int().positive(), span_id: z.number().int().positive(), component_id: z.number().int().positive(), provider: z.enum(["rubric", "typesafe"]).default("rubric"), question: z.string().max(1000).optional(), yes: z.string().max(1000).optional(), no: z.string().max(1000).optional(), share_with_typesafe: z.boolean().default(false) },
+    inputSchema: { trace_id: z.number().int().positive(), span_id: z.number().int().positive(), component_id: z.number().int().positive(), evidence_scope: z.enum(["span", "trace"]).default("span"), provider: z.enum(["rubric", "typesafe"]).default("rubric"), question: z.string().max(1000).optional(), yes: z.string().max(1000).optional(), no: z.string().max(1000).optional(), share_with_typesafe: z.boolean().default(false) },
     description: "After explicit approval to spend ONE evaluation, queue a linked span check. Read allowance first. rubric pins the saved prompt criteria; typesafe additionally requires configured service, question/yes/no criteria and explicit consent to send content to TypeSafe in the US. Do not infer sharing consent from captured content. Returns a background job; poll bench_get_production_check. Identical evidence is idempotent. TypeSafe probability is not verified truth.",
     handler: async ({ trace_id, span_id, ...body }, ctx) => ctx.client.request(`/api/traces/${trace_id as number}/spans/${span_id as number}/evaluate`, { method: "POST", body }),
   });

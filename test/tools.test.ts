@@ -123,6 +123,7 @@ describe("tool surface", () => {
       "bench_import_dataset_cases",
       "bench_get_evaluation_artifacts",
       "bench_get_fix_brief",
+      "bench_get_runtime_evaluations",
       "bench_evaluation_allowance",
       "bench_list_production_traces",
       "bench_get_production_trace",
@@ -588,6 +589,16 @@ describe("expired-credential guidance", () => {
 });
 
 describe("system context tools", () => {
+  it("reads runtime reports and opts into full trace evidence explicitly", async () => {
+    api.on("GET", "/api/ai-systems/9/runtime-evaluations", {evaluations:[],has_more:false});
+    api.on("POST", "/api/traces/1/spans/2/evaluate", {job:{id:3,status:"queued"}});
+    const client = await connect(api);
+    const result = await client.callTool({name:"bench_get_runtime_evaluations",arguments:{ai_system_id:9,offset:5}});
+    expect(result.isError).toBeFalsy();
+    expect(api.calls[0]?.url).toContain("offset=5");
+    await client.callTool({name:"bench_check_production_span",arguments:{trace_id:1,span_id:2,component_id:9,evidence_scope:"trace"}});
+    expect(JSON.parse(api.calls[1]?.body ?? "{}")).toEqual({component_id:9,evidence_scope:"trace",provider:"rubric",share_with_typesafe:false});
+  });
   it("starts an explicitly approved whole system without expanding a prompt selection", async () => {
     api.on("POST", "/api/evaluation-runs/system", { runs: [{id: 81}] }, 202);
     const client = await connect(api);
@@ -603,7 +614,7 @@ describe("system context tools", () => {
     const client = await connect(api);
     const result = await client.callTool({ name: "bench_check_production_span", arguments: { trace_id: 3, span_id: 4, component_id: 9 } });
     expect(result.isError).toBeFalsy();
-    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ component_id: 9, provider: "rubric", share_with_typesafe: false });
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ component_id: 9, evidence_scope: "span", provider: "rubric", share_with_typesafe: false });
     await client.callTool({ name: "bench_get_production_check", arguments: { job_id: 5 } });
     await client.callTool({ name: "bench_retry_production_check", arguments: { job_id: 5 } });
     expect(api.calls[1]?.url).toBe("/api/traces/checks/5");
