@@ -59,7 +59,12 @@ bench_open_prompt_pr     open a PR applying it
 
 **New runs proceed without mandatory review.** Read `bench_evaluation_allowance` and confirm spending before starting. Only a legacy run actually reporting `awaiting_review` needs `bench_submit_run_review`. Connecting MCP is available on every plan; evaluations obey the shared account balance and key cap.
 
-Use system context and the test library for optional corrections. Those changes affect future benches, not historical scores. This local branch exposes 41 tools and has not been published.
+Use system context and the test library for optional corrections. Those changes affect future benches, not historical scores. This local branch exposes 42 tools and has not been published.
+
+`bench_get_fix_brief` reads pinned evidence for a completed run without executing
+code or publishing. Pass it to an approved coding agent, then independently validate
+the patch. `bench_open_prompt_pr` is an external write and does not verify a repair
+receipt; never call it during local-only review.
 
 ## Tools
 

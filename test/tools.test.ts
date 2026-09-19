@@ -121,6 +121,7 @@ describe("tool surface", () => {
       "bench_list_datasets",
       "bench_import_dataset_cases",
       "bench_get_evaluation_artifacts",
+      "bench_get_fix_brief",
       "bench_evaluation_allowance",
       "bench_list_production_traces",
       "bench_get_production_trace",
@@ -637,6 +638,15 @@ describe("system context tools", () => {
     expect(tools.some(t => /checkout|subscribe|delete_source/.test(t.name))).toBe(false);
     expect(tools.find(t => t.name === "bench_save_criterion")?.annotations?.readOnlyHint).toBe(false);
     expect(tools.find(t => t.name === "bench_get_evaluation_artifacts")?.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find(t => t.name === "bench_get_fix_brief")?.annotations?.readOnlyHint).toBe(true);
     expect(client.getInstructions()).not.toContain("WILL pause");
+  });
+  it("reads pinned repair evidence without executing or publishing", async () => {
+    api.on("GET", "/api/evaluation-runs/42/fix-brief", { run_id: 42, status: "proposal_required", source_revision_required: true });
+    const client = await connect(api);
+    const result = await client.callTool({ name: "bench_get_fix_brief", arguments: { run_id: 42 } });
+    expect(result.isError).not.toBe(true);
+    expect(api.calls).toHaveLength(1);
+    expect(api.calls[0]?.url).toBe("/api/evaluation-runs/42/fix-brief");
   });
 });
