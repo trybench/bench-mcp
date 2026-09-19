@@ -81,7 +81,7 @@ describe("tool surface", () => {
   // GET /api/evaluation-runs/{id} to bench-api earned bench_get_evaluation
   // its own tool, where the plan had folded single-run polling into
   // bench_list_evaluations.
-  it("exposes exactly the forty-one agreed tools", async () => {
+  it("exposes the agreed tools including complete system benching", async () => {
     const client = await connect(api);
     const { tools } = await client.listTools();
 
@@ -107,6 +107,7 @@ describe("tool surface", () => {
       "bench_rerun_evaluation",
       "bench_scan_repo",
       "bench_start_evaluation",
+      "bench_start_system_evaluation",
       "bench_submit_run_review",
       "bench_upload_prompts",
       "bench_whoami",
@@ -587,6 +588,14 @@ describe("expired-credential guidance", () => {
 });
 
 describe("system context tools", () => {
+  it("starts an explicitly approved whole system without expanding a prompt selection", async () => {
+    api.on("POST", "/api/evaluation-runs/system", { runs: [{id: 81}] }, 202);
+    const client = await connect(api);
+    const result = await client.callTool({ name: "bench_start_system_evaluation", arguments: { ai_system_id: 7 } });
+    expect(result.isError).not.toBe(true);
+    expect(api.calls[0]?.url).toBe("/api/evaluation-runs/system");
+    expect(JSON.parse(api.calls[0]?.body ?? "{}")).toEqual({ ai_system_id: 7 });
+  });
   it("queues production checks without inventing sharing consent", async () => {
     api.on("POST", "/api/traces/3/spans/4/evaluate", { job: { id: 5, status: "queued" } }, 202);
     api.on("GET", "/api/traces/checks/5", { job: { id: 5, status: "completed" } });

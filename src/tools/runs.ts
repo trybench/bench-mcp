@@ -13,10 +13,19 @@ import { registerTool, type ToolContext } from "./register.js";
 /** Background runs proceed directly; the review tool supports legacy paused runs. */
 export function registerRunTools(server: McpServer, context: ToolContext): void {
   registerTool(server, context, {
+    name: "bench_start_system_evaluation",
+    title: "Bench a complete AI system",
+    description: "Evaluate all recognized prompts in one AI system in the background. Check bench_evaluation_allowance, show the system to the user and confirm spending first. Free includes one complete system bench; a failed or canceled group returns the account credit. Paid plans charge per fresh prompt evaluation. Does not execute the full agent runtime. Returns run IDs to poll with bench_get_evaluation. Never silently expand a request to evaluate only selected prompts.",
+    inputSchema: { ai_system_id: z.number().int().positive() },
+    handler: async (args, ctx) => ctx.client.request("/api/evaluation-runs/system", {
+      method: "POST", body: { ai_system_id: args.ai_system_id },
+    }),
+  });
+  registerTool(server, context, {
     name: "bench_start_evaluation",
     title: "Start an evaluation",
     description:
-      "Evaluate and optimize extracted prompts in the background. Returns run IDs immediately. No rubric review is required. Pass ai_system_id to pin its context and prompt-specific golden cases and criteria. Check bench_evaluation_allowance and confirm spending first. Each fresh baseline consumes one evaluation. Poll bench_get_evaluation, then read bench_get_evaluation_artifacts.",
+      "Evaluate selected extracted prompts in the background. Returns run IDs immediately. For the complete system, use bench_start_system_evaluation instead. No rubric review is required. Pass ai_system_id to pin its context and prompt-specific golden cases and criteria. Check bench_evaluation_allowance and confirm spending first. Each fresh prompt evaluation reserves one credit, refunded if it fails or is canceled. Poll bench_get_evaluation, then read bench_get_evaluation_artifacts.",
     inputSchema: startEvaluationInput,
     handler: async (args, ctx) =>
       ctx.client.request("/api/evaluation-runs", {
