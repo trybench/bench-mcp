@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -43,6 +43,7 @@ interface Session {
   server: McpServer;
   /** Last time this session was touched, for idle expiry. */
   lastSeen: number;
+  identity: { kind: "api_key"; digest: Buffer } | { kind: "oauth"; subject: string };
   /**
    * Present for OAuth sessions only. It needs the access token from each
    * live request to renew, so the request path hands it one; an API-key
@@ -169,9 +170,13 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     }
 
     const sessionId = headerValue(req, SESSION_HEADER);
+    const unauthorized = (message: string): void => {
+      res.setHeader("WWW-Authenticate", opts.oauth ? wwwAuthenticate(opts.oauth) : 'Bearer realm="bench"');
+      writeJson(res, 401, { jsonrpc: "2.0", error: { code: -32001, message }, id: null });
+    };
 
-    // An established session: the credential was checked at initialize
-    // and is bound to this session's server.
+    // A session id routes a request. Every request must independently
+    // authenticate as the principal who opened that session.
     if (sessionId) {
       const session = sessions.get(sessionId);
       if (!session) {
@@ -182,7 +187,32 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
         });
         return;
       }
-      session.lastSeen = Date.now();
+      const live = bearerToken(req);
+      if (!live) {
+        unauthorized("Authorization required for this session.");
+        return;
+      }
+      if (session.identity.kind === "api_key") {
+        if (!timingSafeEqual(session.identity.digest, createHash("sha256").update(live).digest())) {
+          unauthorized("Invalid credential for this session.");
+          return;
+        }
+      } else {
+        let verified: VerifiedToken;
+        try {
+          if (!verifier) throw new Error("OAuth is unavailable");
+          verified = await verifier.verify(live);
+        } catch {
+          counts.challenges += 1;
+          unauthorized("Invalid or expired access token.");
+          return;
+        }
+        if (verified.subject !== session.identity.subject) {
+          counts.refusals += 1;
+          writeJson(res, 403, { jsonrpc: "2.0", error: { code: -32002, message: "Reconnect to use a different account." }, id: null });
+          return;
+        }
+      }
 
       // Renewal happens here, before the transport takes over, because
       // this is the last point at which a failure can still be spoken as
@@ -190,8 +220,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
       // with a 401 and not before, so a renewal that needs a fresher
       // token has to be able to issue that challenge — inside a tool
       // call it could only throw, and the session would stay broken.
-      const live = bearerToken(req);
-      if (live) session.credential?.observe(live);
+      session.credential?.observe(live);
 
       if (session.credential?.isDue) {
         try {
@@ -228,6 +257,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
         }
       }
 
+      session.lastSeen = Date.now();
       await session.transport.handleRequest(req, res);
       return;
     }
@@ -258,17 +288,6 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // MCP spec requires, and is then forwarded to bench-api, which does
     // its own authorization — bench-mcp holds no policy of its own.
     const credential = bearerToken(req);
-    const unauthorized = (message: string): void => {
-      res.setHeader(
-        "WWW-Authenticate",
-        opts.oauth ? wwwAuthenticate(opts.oauth) : 'Bearer realm="bench"',
-      );
-      writeJson(res, 401, {
-        jsonrpc: "2.0",
-        error: { code: -32001, message },
-        id: null,
-      });
-    };
 
     if (!credential) {
       unauthorized(
@@ -285,6 +304,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // forbids forwarding the client's token to an upstream API.
     let upstreamCredential: CredentialSource = credential;
     let authMode: AuthMode = "api_key";
+    let identity: Session["identity"] = { kind: "api_key", digest: createHash("sha256").update(credential).digest() };
     let refreshing: RefreshingCredential | undefined;
 
     if (!credential.startsWith(API_KEY_PREFIX)) {
@@ -295,6 +315,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
       let verified: VerifiedToken;
       try {
         verified = await verifier.verify(credential);
+        identity = { kind: "oauth", subject: verified.subject };
       } catch {
         // Deliberately not echoing the verification error: it
         // distinguishes expired from wrong-audience from bad-signature,
@@ -363,6 +384,7 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
           transport,
           server,
           lastSeen: Date.now(),
+          identity,
           ...(refreshing !== undefined ? { credential: refreshing } : {}),
         });
       },
@@ -403,9 +425,8 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
 /**
  * One structured line per credential event.
  *
- * Deliberately carries no subject, token or session id. An established
- * session is addressed by its id alone, so that id is a credential in its
- * own right and does not belong in a log. These lines exist to show that
+ * Deliberately carries no subject, token or session id. These identifiers
+ * do not belong in logs. These lines exist to show that
  * renewal is happening at all, which needs no identity to answer.
  */
 function log(event: string, fields: Record<string, unknown>): void {

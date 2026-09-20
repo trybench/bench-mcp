@@ -122,6 +122,30 @@ describe("authentication", () => {
 });
 
 describe("tenancy", () => {
+  it("requires the owner's bearer token on every session request", async () => {
+    const alice = await connectWithKey("bench_sk_alice");
+    const sessionId = aliceTransport!.sessionId!;
+    for (const method of ["POST", "GET", "DELETE"]) {
+      for (const key of [undefined, "bench_sk_bob"]) {
+        const response = await fetch(baseUrl, {
+          method,
+          headers: {
+            "mcp-session-id": sessionId,
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            ...(key ? { Authorization: `Bearer ${key}` } : {}),
+          },
+          ...(method === "POST" ? { body: JSON.stringify({ jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "bench_whoami", arguments: {} } }) } : {}),
+        });
+        expect(response.status).toBe(401);
+        expect(response.headers.get("WWW-Authenticate")).toContain("Bearer");
+        await response.text();
+      }
+    }
+    expect(api.calls).toEqual([]);
+    await alice.callTool({ name: "bench_whoami", arguments: {} });
+    expect(api.calls.map((call) => call.key)).toEqual(["bench_sk_alice"]);
+  });
   // Deliberately does not assert the tool count: test/tools.test.ts pins
   // the exact surface, and duplicating it here means adding a tool breaks
   // an unrelated file. That is not hypothetical - it broke dev once, when

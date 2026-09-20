@@ -505,7 +505,8 @@ describe("credential renewal", () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     const res = await callWhoami(sessionId, somebodyElse);
 
-    expect(res.body).toContain("different Bench account");
+    expect(res.status).toBe(403);
+    expect(res.body).toContain("different account");
     expect(mintCount).toBe(1);
     expect(upstreamAuth()).toEqual([]);
   });
@@ -542,7 +543,7 @@ describe("credential renewal", () => {
 
   // An API key on an OAuth session is not a credential a renewal can use;
   // storing it would destroy the access token the renewal needs.
-  it("ignores an API key presented on an OAuth session", async () => {
+  it("rejects an API key presented on an OAuth session", async () => {
     exchangeExpiresIn = 1;
     const token = await mintToken();
     const sessionId = await openSession(token);
@@ -550,9 +551,22 @@ describe("credential renewal", () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     const res = await callWhoami(sessionId, "bench_sk_notatoken");
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
     const exchanges = upstreamCalls.filter((c) => c.path === "/api/auth/mcp-token");
-    expect(exchanges[1]?.auth).toBe(`Bearer ${token}`);
+    expect(exchanges).toHaveLength(1);
+    expect(upstreamAuth()).toEqual([]);
+  });
+
+  it("checks token ownership and expiry before upstream renewal is due", async () => {
+    const token = await mintToken();
+    const sessionId = await openSession(token);
+    const other = await callWhoami(sessionId, await mintToken({ subject: "user_other" }));
+    expect(other.status).toBe(403);
+    const expired = await callWhoami(sessionId, await mintToken({ expiresIn: "-1h" }));
+    expect(expired.status).toBe(401);
+    expect(upstreamAuth()).toEqual([]);
+    expect((await callWhoami(sessionId, token)).status).toBe(200);
+    expect(mintCount).toBe(1);
   });
 });
 
