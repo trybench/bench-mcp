@@ -11,7 +11,7 @@
 
 /** The shape bench-api's apierror package writes for every failure. */
 interface BenchApiErrorBody {
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; reference?: string };
   code?: string;
   message?: string;
 }
@@ -199,7 +199,12 @@ export class BenchClient {
     const code = body.error?.code ?? body.code ?? `http_${response.status}`;
     const message = body.error?.message ?? body.message ?? response.statusText;
 
-    return new BenchApiError(response.status, code, this.explain(code, message));
+    const reference = body.error?.reference;
+    const explanation = this.explain(code, message);
+    const publicMessage = reference && /^BENCH-[A-Za-z0-9-]{1,80}$/.test(reference)
+      ? `${explanation} Error code: ${reference}.`
+      : explanation;
+    return new BenchApiError(response.status, code, publicMessage);
   }
 
   /**

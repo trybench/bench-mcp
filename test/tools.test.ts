@@ -555,6 +555,14 @@ describe("harness findings", () => {
  * sends them somewhere that cannot help.
  */
 describe("expired-credential guidance", () => {
+  it("keeps a validated support reference in tool errors", async () => {
+    const client = new BenchClient({
+      baseUrl: "https://api.test.invalid", apiKey: "credential",
+      fetchImpl: async () => new Response(JSON.stringify({error:{code:"pipeline_error",message:"Bench could not complete this request.",reference:"BENCH-ABC123"}}), {status:503}),
+    });
+    await expect(client.request("/api/auth/me")).rejects.toThrow("Error code: BENCH-ABC123.");
+  });
+
   const unauthorized = () =>
     new Response(
       JSON.stringify({ error: { code: "unauthorized", message: "invalid or expired session token" } }),
