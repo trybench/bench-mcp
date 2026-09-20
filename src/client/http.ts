@@ -11,7 +11,7 @@
 
 /** The shape bench-api's apierror package writes for every failure. */
 interface BenchApiErrorBody {
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; reference?: string };
   code?: string;
   message?: string;
 }
@@ -38,6 +38,11 @@ export class BenchApiError extends Error {
   get isTerminal(): boolean {
     return [
       "no_active_plan",
+      "evaluations_exhausted",
+      "test_case_limit_exceeded",
+      "key_evaluations_exhausted",
+      "upgrade_required",
+      "context_changed",
       "free_plan_single_prompt",
       "session_required",
       "repo_not_allowed",
@@ -72,7 +77,7 @@ export interface BenchClientOptions {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Query parameters; entries with undefined values are dropped. */
   query?: Record<string, string | number | undefined>;
   /** JSON request body. Mutually exclusive with `form`. */
@@ -194,7 +199,12 @@ export class BenchClient {
     const code = body.error?.code ?? body.code ?? `http_${response.status}`;
     const message = body.error?.message ?? body.message ?? response.statusText;
 
-    return new BenchApiError(response.status, code, this.explain(code, message));
+    const reference = body.error?.reference;
+    const explanation = this.explain(code, message);
+    const publicMessage = reference && /^BENCH-[A-Za-z0-9-]{1,80}$/.test(reference)
+      ? `${explanation} Error code: ${reference}.`
+      : explanation;
+    return new BenchApiError(response.status, code, publicMessage);
   }
 
   /**
@@ -211,7 +221,14 @@ export class BenchClient {
       case "key_revoked":
         return `${message}. Generate a new key in Bench account settings.`;
       case "no_active_plan":
-        return `${message}. Subscribe to a plan in Bench to run evaluations.`;
+      case "evaluations_exhausted":
+      case "test_case_limit_exceeded":
+      case "upgrade_required":
+        return `${message} Call bench_evaluation_allowance for the current limit and upgrade URL. The user must confirm subscription changes in the web app. MCP connection itself is free.`;
+      case "key_evaluations_exhausted":
+        return `${message} Ask the key owner to review its cap in Bench MCP settings. A plan upgrade does not change an API key cap.`;
+      case "context_changed":
+        return `${message} Re-read bench_get_system_context and reconcile changes before writing again.`;
       case "repo_not_allowed":
         return `${message}. This key was minted for specific repositories only.`;
       case "session_required":

@@ -65,6 +65,7 @@ export const uploadPromptsInput = {
 };
 
 export const startEvaluationInput = {
+  ai_system_id: z.number().int().positive().optional().describe("Recognized AI system. Pins its context and prompt-specific golden cases and criteria for this run."),
   repo_full_name: z
     .string()
     .min(1)
@@ -81,7 +82,7 @@ export const startEvaluationInput = {
       }),
     )
     .min(1)
-    .describe("Call sites to evaluate. The Free plan covers one prompt per evaluation."),
+    .describe("Selected call sites only. For Free whole-system coverage use bench_start_system_evaluation; this legacy prompt-selection tool accepts one prompt on Free."),
   generate_context: z
     .boolean()
     .optional()
