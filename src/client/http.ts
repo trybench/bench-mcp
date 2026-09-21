@@ -11,7 +11,7 @@
 
 /** The shape bench-api's apierror package writes for every failure. */
 interface BenchApiErrorBody {
-  error?: { code?: string; message?: string; reference?: string };
+  error?: { code?: string; message?: string; reference?: string; [key: string]: unknown };
   code?: string;
   message?: string;
 }
@@ -25,6 +25,7 @@ export class BenchApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "BenchApiError";
@@ -42,9 +43,13 @@ export class BenchApiError extends Error {
       "test_case_limit_exceeded",
       "key_evaluations_exhausted",
       "upgrade_required",
+      "growth_required",
       "context_changed",
       "free_plan_single_prompt",
       "session_required",
+      "account_authorization_required",
+      "source_authorization_required",
+      "artifact_scope_unverified",
       "repo_not_allowed",
       "key_revoked",
       "unauthorized",
@@ -117,6 +122,12 @@ export class BenchClient {
   async request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     const response = await this.send(path, opts);
     if (response.status === 204) return undefined as T;
+    if (response.headers.get("content-type")?.includes("ndjson")) {
+      const events = (await response.text()).split("\n").filter(line => line.trim()).map(line => JSON.parse(line) as Record<string, unknown>);
+      const failed = events.find(event => event.type === "error");
+      if (failed) throw new BenchApiError(200, String(failed.code ?? "stream_error"), String(failed.message ?? failed.error ?? "The operation failed."));
+      return events as T;
+    }
     return (await response.json()) as T;
   }
 
@@ -155,6 +166,7 @@ export class BenchClient {
       method: opts.method ?? "GET",
       headers,
       signal,
+      redirect: "error",
     };
     const payload = opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined);
     if (payload !== undefined) init.body = payload;
@@ -204,7 +216,8 @@ export class BenchClient {
     const publicMessage = reference && /^BENCH-[A-Za-z0-9-]{1,80}$/.test(reference)
       ? `${explanation} Error code: ${reference}.`
       : explanation;
-    return new BenchApiError(response.status, code, publicMessage);
+    const links = [body.error?.pricing_url ? `Pricing: ${body.error.pricing_url}` : "", body.error?.upgrade_url ? `Upgrade in Bench: ${body.error.upgrade_url}` : "", body.error?.manage_key_url ? `Manage key: ${body.error.manage_key_url}` : ""].filter(Boolean).join("\n");
+    return new BenchApiError(response.status, code, links ? `${publicMessage}\n${links}` : publicMessage, body.error ?? {});
   }
 
   /**
@@ -224,7 +237,8 @@ export class BenchClient {
       case "evaluations_exhausted":
       case "test_case_limit_exceeded":
       case "upgrade_required":
-        return `${message} Call bench_evaluation_allowance for the current limit and upgrade URL. The user must confirm subscription changes in the web app. MCP connection itself is free.`;
+      case "growth_required":
+        return `${message} Call bench_evaluation_allowance for the current limit and upgrade URL. Use the authenticated billing tools to get a checkout or upgrade link after user approval. MCP connection itself is free.`;
       case "key_evaluations_exhausted":
         return `${message} Ask the key owner to review its cap in Bench MCP settings. A plan upgrade does not change an API key cap.`;
       case "context_changed":
@@ -232,7 +246,10 @@ export class BenchClient {
       case "repo_not_allowed":
         return `${message}. This key was minted for specific repositories only.`;
       case "session_required":
-        return `${message}. Billing and team membership are managed in the Bench web app.`;
+      case "account_authorization_required":
+        return `${message}. Reconnect Bench using OAuth for account management; a scoped API key cannot gain that authority.`;
+      case "source_authorization_required":
+        return `${message}. Read bench_get_processing_notice, obtain user authorization, then call bench_acknowledge_processing for this source.`;
       case "installation_not_found":
         return `${message}. Connect a GitHub account in Bench first, or use bench_upload_prompts instead.`;
       case "scan_not_found":
