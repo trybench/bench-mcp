@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { BenchClient } from "../src/client/http.js";
+import { operationCatalog } from "../src/operations.js";
 import { createServer } from "../src/server.js";
 
 /**
@@ -86,6 +87,7 @@ describe("tool surface", () => {
     const { tools } = await client.listTools();
 
     expect(tools.map((t) => t.name).sort()).toEqual([
+      ...operationCatalog.operations.filter(op => op.mcp && !op.mcp_legacy).map(op => `bench_${op.id}`),
       "bench_activate_installation",
       "bench_cancel_evaluation",
       "bench_connect_github",
@@ -391,7 +393,7 @@ describe("connecting GitHub", () => {
 
     const result = await client.callTool({ name: "bench_connect_github", arguments: {} });
 
-    expect(api.calls[0]?.url).toBe("/api/github/install-url");
+    expect(api.calls[0]?.url).toBe("/api/github/install-url?headless=true");
     expect(resultJson(result as never)).toMatchObject({
       url: "https://github.com/apps/bench-staging/installations/new",
     });
@@ -660,10 +662,11 @@ describe("system context tools", () => {
     expect(resultText(result as never)).toContain(code === "key_evaluations_exhausted" ? "key owner" : "bench_evaluation_allowance");
     expect(api.calls).toHaveLength(1);
   });
-  it("does not expose payment or destructive source-deletion tools", async () => {
+  it("marks payment and destructive tools as writes requiring user authorization", async () => {
     const client = await connect(api);
     const {tools} = await client.listTools();
-    expect(tools.some(t => /checkout|subscribe|delete_source/.test(t.name))).toBe(false);
+    expect(tools.find(t => t.name === "bench_create_checkout")?.annotations?.readOnlyHint).toBe(false);
+    expect(tools.find(t => t.name === "bench_delete_context_source")?.annotations?.destructiveHint).toBe(true);
     expect(tools.find(t => t.name === "bench_save_criterion")?.annotations?.readOnlyHint).toBe(false);
     expect(tools.find(t => t.name === "bench_get_evaluation_artifacts")?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find(t => t.name === "bench_get_fix_brief")?.annotations?.readOnlyHint).toBe(true);
