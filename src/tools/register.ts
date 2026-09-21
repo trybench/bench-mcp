@@ -53,7 +53,7 @@ export function registerTool(
       } catch (error) {
         return {
           isError: true,
-          ...(error instanceof BenchApiError ? { structuredContent: { error: { code: error.code, message: error.message, retryable: !error.isTerminal } } } : {}),
+          ...(error instanceof BenchApiError ? { structuredContent: { error: { ...error.details, code: error.code, message: error.message, retryable: !error.isTerminal } } } : {}),
           content: [{ type: "text", text: describeError(error) }],
         };
       }

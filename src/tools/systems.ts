@@ -63,7 +63,7 @@ export function registerSystemTools(server: McpServer, context: ToolContext): vo
   }
   registerTool(server, context, {
     name: "bench_list_datasets", title: "List uploaded datasets", inputSchema: system, readOnly: true,
-    description: "List saved datasets and versions for a system. Upload and column mapping remain in the web app. A dataset is not an evaluation suite until explicitly added to the test library.",
+    description: "List saved datasets and versions for a system. Use bench_preview_dataset, bench_upload_dataset and bench_remap_dataset for uploads and column mapping. A dataset is not an evaluation suite until explicitly added to the test library.",
     handler: async (args, ctx) => ctx.client.request(path(args, "/datasets")),
   });
   registerTool(server, context, {

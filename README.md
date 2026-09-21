@@ -193,3 +193,21 @@ npm run build
 Point at a local bench-api with `BENCH_API_BASE_URL=http://localhost:8080`.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch and PR conventions.
+
+## Headless development workflows
+
+The development branch exposes all 135 user-facing API operations at
+`GET https://api.staging.usebench.ai/api/headless/operations`: setup, GitHub,
+prompts/systems, context, files/datasets, tests/criteria, evaluations/history,
+real app reports, production feedback, workspaces and billing.
+
+MCP OAuth supports account setup without Bench browser onboarding. GitHub grants
+and Stripe payment confirmation require the user's provider approval. Scoped API
+keys retain repository, ownership and spending restrictions and cannot mint
+credentials or change billing/team access. Model selection requires active Growth
+or Enterprise. Use explicit approval before spending, sending invitations, changing
+billing or publishing code.
+
+Documentation source: `guides/headless.mdx`, `sdk/platform.mdx` and
+`reference/headless.mdx` on bench-docs's development branch. This is a development
+preview; a dev merge does not publish production packages.
