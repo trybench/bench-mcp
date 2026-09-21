@@ -194,10 +194,10 @@ Point at a local bench-api with `BENCH_API_BASE_URL=http://localhost:8080`.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch and PR conventions.
 
-## Headless development workflows
+## Headless workflows
 
-The development branch exposes all 135 user-facing API operations at
-`GET https://api.staging.usebench.ai/api/headless/operations`: setup, GitHub,
+Bench exposes all 135 user-facing API operations at
+`GET https://api.usebench.ai/api/headless/operations`: setup, GitHub,
 prompts/systems, context, files/datasets, tests/criteria, evaluations/history,
 real app reports, production feedback, workspaces and billing.
 
@@ -208,6 +208,8 @@ credentials or change billing/team access. Model selection requires active Growt
 or Enterprise. Use explicit approval before spending, sending invitations, changing
 billing or publishing code.
 
-Documentation source: `guides/headless.mdx`, `sdk/platform.mdx` and
-`reference/headless.mdx` on bench-docs's development branch. This is a development
-preview; a dev merge does not publish production packages.
+Use `https://api.staging.usebench.ai` and `https://mcp.staging.usebench.ai/mcp`
+for development; production MCP is `https://mcp.usebench.ai/mcp`. Credentials
+are separate between environments. See the [headless guide](https://docs.usebench.ai/guides/headless),
+[platform SDK clients](https://docs.usebench.ai/sdk/platform) and
+[operation reference](https://docs.usebench.ai/reference/headless).
