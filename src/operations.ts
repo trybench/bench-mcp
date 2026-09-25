@@ -1799,6 +1799,246 @@ export const operationCatalog = {
     },
     {
       "auth": "credential",
+      "body": {
+        "additionalProperties": {},
+        "type": "object"
+      },
+      "description": "Validate and persist an immutable application evaluation plan without paid execution. Pins versions, grouped cases, configurations, runtime and explicit budgets. Confirmation inputs and expected outcomes remain private.",
+      "id": "runtime_eval_plan",
+      "mcp": true,
+      "mcp_legacy": true,
+      "method": "POST",
+      "path": "/api/ai-systems/{id}/evaluation-plans",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": false
+    },
+    {
+      "auth": "credential",
+      "description": "Read public plan counts and budget estimates. Confirmation content is never returned.",
+      "id": "runtime_eval_get_plan",
+      "mcp": true,
+      "mcp_legacy": false,
+      "method": "GET",
+      "path": "/api/ai-systems/{id}/evaluation-plans/{planID}",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "planID": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": true
+    },
+    {
+      "auth": "credential",
+      "description": "Read only development cases for human review; confirmation and calibration cases are excluded.",
+      "id": "runtime_eval_review_cases",
+      "mcp": true,
+      "mcp_legacy": true,
+      "method": "GET",
+      "path": "/api/ai-systems/{id}/evaluation-plans/{planID}/review",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "planID": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": true
+    },
+    {
+      "auth": "credential",
+      "body": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Record good, bad or skip feedback for a development case. Applying feedback requires a new immutable dataset and plan.",
+      "id": "runtime_eval_review",
+      "mcp": true,
+      "mcp_legacy": true,
+      "method": "POST",
+      "path": "/api/ai-systems/{id}/evaluation-plans/{planID}/review",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "planID": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": false
+    },
+    {
+      "auth": "credential",
+      "body": {
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Start a saved plan. Requires Idempotency-Key header (8–200 characters), GitHub authorization, and evaluation allowance. Duplicate starts return the original run without repeating execution.",
+      "id": "runtime_eval_run",
+      "mcp": true,
+      "mcp_legacy": true,
+      "method": "POST",
+      "path": "/api/ai-systems/{id}/evaluation-runs",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": false
+    },
+    {
+      "auth": "credential",
+      "description": "Read job status separately from evaluation decision, uncertainty, resource metrics and development evidence. No confirmation content is returned.",
+      "id": "runtime_eval_results",
+      "mcp": true,
+      "mcp_legacy": true,
+      "method": "GET",
+      "path": "/api/ai-systems/{id}/evaluation-runs/{runID}",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "runID": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "read_only": true
+    },
+    {
+      "auth": "credential",
+      "description": "Read durable events with action=events and optional after cursor. Other actions return the protected result.",
+      "id": "runtime_eval_events",
+      "mcp": true,
+      "mcp_legacy": true,
+      "method": "GET",
+      "path": "/api/ai-systems/{id}/evaluation-runs/{runID}/{action}",
+      "path_parameters": {
+        "action": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "runID": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "read_only": true
+    },
+    {
+      "auth": "credential",
+      "description": "Cancel or resume a safely checkpointed canceled run. Ambiguous paid work, used holdouts and insufficient budgets cannot be automatically retried.",
+      "id": "runtime_eval_control",
+      "mcp": true,
+      "mcp_legacy": true,
+      "method": "POST",
+      "path": "/api/ai-systems/{id}/evaluation-runs/{runID}/{action}",
+      "path_parameters": {
+        "action": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "runID": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "read_only": false
+    },
+    {
+      "auth": "credential",
       "body": null,
       "description": "Read hosted runtime availability, settings and jobs. For local real app tests, use the SDK even when hosted execution is unavailable. Does not start an evaluation.",
       "id": "get_runtime_settings",
