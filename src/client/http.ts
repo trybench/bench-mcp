@@ -77,6 +77,7 @@ export interface BenchClientOptions {
 }
 
 export interface RequestOptions {
+  idempotencyKey?: string;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Query parameters; entries with undefined values are dropped. */
   query?: Record<string, string | number | undefined>;
@@ -142,6 +143,7 @@ export class BenchClient {
       Authorization: `Bearer ${await this.credential()}`,
       Accept: "application/json",
     };
+    if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
     // FormData must set its own multipart boundary, so only JSON bodies
     // declare a content type here.
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";

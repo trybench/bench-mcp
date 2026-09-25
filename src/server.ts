@@ -5,6 +5,7 @@ import { iconsFor } from "./icon.js";
 import { registerConnectTools } from "./tools/connect.js";
 import { registerPrTools } from "./tools/pr.js";
 import { registerResultTools } from "./tools/results.js";
+import { registerRuntimeEvaluationTools } from "./tools/runtime-evaluations.js";
 import { registerRunTools } from "./tools/runs.js";
 import { registerScanTools } from "./tools/scan.js";
 import { registerStageTools } from "./tools/stages.js";
@@ -73,6 +74,7 @@ export function createServer(opts: CreateServerOptions): McpServer {
   registerConnectTools(server, context);
   registerScanTools(server, context);
   registerRunTools(server, context);
+  registerRuntimeEvaluationTools(server, context);
   registerStageTools(server, context);
   registerResultTools(server, context);
   registerPrTools(server, context);
