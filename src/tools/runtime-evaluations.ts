@@ -30,9 +30,11 @@ export function registerRuntimeEvaluationTools(server: McpServer, context: ToolC
   });
   registerTool(server, context, {
     name: 'bench_runtime_eval_control', title: 'Control a runtime evaluation',
-    description: 'Cancel or resume a safely checkpointed canceled evaluation. Ambiguous paid attempts, completed confirmation, and plans needing more data require investigation; they are never silently repeated.',
-    inputSchema: { ...system, run_id:z.string(), action:z.enum(['cancel','resume']), idempotency_key:z.string().min(8) },
-    handler: (args,ctx)=>ctx.client.request(`/api/ai-systems/${args.ai_system_id}/evaluation-runs/${encodeURIComponent(args.run_id as string)}/${args.action}`,{method:'POST',body:{},idempotencyKey:args.idempotency_key as string}),
+    description: 'Cancel a run, resume a safely checkpointed canceled run, or continue a paused run. A budget pause needs extend_budget; a possibly billed lost attempt needs retry_ambiguous_attempt=true and is charged conservatively. Completed confirmation and plans needing more independent data are never silently repeated.',
+    inputSchema: { ...system, run_id:z.string(), action:z.enum(['cancel','resume']), idempotency_key:z.string().min(8),
+      extend_budget: z.object({ max_cost_usd: z.number().positive().optional(), max_trials: z.number().int().positive().optional(), max_duration_s: z.number().positive().optional() }).strict().optional(),
+      retry_ambiguous_attempt: z.boolean().optional() },
+    handler: (args,ctx)=>ctx.client.request(`/api/ai-systems/${args.ai_system_id}/evaluation-runs/${encodeURIComponent(args.run_id as string)}/${args.action}`,{method:'POST',body:args.action==='resume'?{...(args.extend_budget?{extend_budget:args.extend_budget}:{}),...(args.retry_ambiguous_attempt?{retry_ambiguous_attempt:true}:{})}:{},idempotencyKey:args.idempotency_key as string}),
   });
   registerTool(server, context, {
     name: 'bench_runtime_eval_review_cases',title:'Read development cases for review',readOnly:true,
