@@ -1,5 +1,5 @@
 {
-  "name": "@trybench/mcp",
+  "name": "@benchai/mcp",
   "version": "0.2.0",
   "description": "MCP server for Bench — evaluate and optimize your LLM prompts from any MCP client",
   "license": "MIT",
