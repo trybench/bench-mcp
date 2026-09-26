@@ -20,6 +20,9 @@ interface BenchApiErrorBody {
  * An error carrying bench-api's own error code, so callers can branch on
  * the cause rather than string-matching a message.
  */
+/** Identifies this MCP server to bench-api. */
+export const USER_AGENT = "bench-mcp/0.1.0";
+
 export class BenchApiError extends Error {
   constructor(
     readonly status: number,
@@ -153,6 +156,8 @@ export class BenchClient {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${await this.credential()}`,
       Accept: "application/json",
+      // Lets Bench attribute key-based requests to the coding agent (setup progress).
+      "User-Agent": USER_AGENT,
     };
     if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
     // FormData must set its own multipart boundary, so only JSON bodies
