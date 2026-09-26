@@ -1917,13 +1917,59 @@ export const operationCatalog = {
       "body": {
         "additionalProperties": false,
         "properties": {
+          "allowed_providers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Propose candidate configurations for a new plan from development trials and published model evidence across allowed providers. Reads no confirmation trials, runs no model, and never edits the saved plan; every proposal is unverified until measured.",
+      "id": "runtime_eval_candidates",
+      "mcp": true,
+      "mcp_legacy": false,
+      "method": "POST",
+      "path": "/api/ai-systems/{id}/evaluation-plans/{planID}/candidates",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "planID": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": true
+    },
+    {
+      "auth": "credential",
+      "body": {
+        "additionalProperties": false,
+        "properties": {
           "plan_id": {
             "type": "string"
           }
         },
         "type": "object"
       },
-      "description": "Start a saved plan. Requires Idempotency-Key header (8–200 characters), GitHub authorization, and evaluation allowance. Duplicate starts return the original run without repeating execution.",
+      "description": "Start a saved plan. Requires Idempotency-Key header (8\u2013200 characters), GitHub authorization, and evaluation allowance. Duplicate starts return the original run without repeating execution.",
       "id": "runtime_eval_run",
       "mcp": true,
       "mcp_legacy": true,
@@ -2006,7 +2052,20 @@ export const operationCatalog = {
     },
     {
       "auth": "credential",
-      "description": "Cancel or resume a safely checkpointed canceled run. Ambiguous paid work, used holdouts and insufficient budgets cannot be automatically retried.",
+      "body": {
+        "additionalProperties": false,
+        "properties": {
+          "extend_budget": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "retry_ambiguous_attempt": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Cancel a run, resume a safely checkpointed canceled run, or continue a paused run with an explicit extend_budget or an acknowledged retry_ambiguous_attempt. Used holdouts and plans needing more independent data are never automatically retried.",
       "id": "runtime_eval_control",
       "mcp": true,
       "mcp_legacy": true,
