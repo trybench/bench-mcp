@@ -49,7 +49,7 @@ claude mcp add bench --env BENCH_API_KEY=bench_sk_... -- npx -y @benchai/mcp
 | `BENCH_MCP_AUTHKIT_DOMAIN` | no | — | WorkOS AuthKit issuer; enables OAuth in `http` mode together with `BENCH_MCP_RESOURCE_URL` |
 | `BENCH_MCP_RESOURCE_URL` | no | — | This server's canonical URL, the audience OAuth tokens must carry |
 
-Requests carry the `User-Agent` `bench-mcp/0.2.1`.
+Requests carry the `User-Agent` `bench-mcp/0.2.2`.
 
 ## How a session goes
 
