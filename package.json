@@ -1,7 +1,7 @@
 {
   "name": "@benchai/mcp",
-  "version": "0.2.0",
-  "description": "MCP server for Bench — evaluate and optimize your LLM prompts from any MCP client",
+  "version": "0.2.1",
+  "description": "MCP server for Bench: evaluate and improve AI systems (agents, prompts, tools, models and hand-offs) from any MCP client",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -45,10 +45,13 @@
     "mcp",
     "modelcontextprotocol",
     "bench",
-    "llm",
+    "ai-systems",
+    "agents",
     "evaluation",
     "prompt-optimization",
-    "claude"
+    "opentelemetry",
+    "claude",
+    "codex"
   ],
   "publishConfig": {
     "access": "public"

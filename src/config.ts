@@ -13,7 +13,7 @@ export interface BaseConfig {
   timeoutMs: number;
 }
 
-export const DEFAULT_BASE_URL = "https://api.trybench.ai";
+export const DEFAULT_BASE_URL = "https://api.usebench.ai";
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const API_KEY_PREFIX = "bench_sk_";
 

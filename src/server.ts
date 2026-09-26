@@ -39,7 +39,7 @@ export function createServer(opts: CreateServerOptions): McpServer {
     {
       name: "bench-mcp",
       title: "Bench",
-      version: "0.2.0",
+      version: "0.2.1",
       websiteUrl: "https://usebench.ai",
       icons: iconsFor(opts.publicOrigin),
     },
