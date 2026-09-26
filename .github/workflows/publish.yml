@@ -12,16 +12,26 @@ name: Publish
 on:
   push:
     tags: ['v*']
+  # Re-run for an existing tag without re-pushing it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (vX.Y.Z)
+        required: true
 
 permissions:
   id-token: write # required for OIDC
-  contents: read
+  contents: write # creates the GitHub release for the tag
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Resolve the release tag
+        run: echo "RELEASE_TAG=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
@@ -44,11 +54,21 @@ jobs:
 
       - name: Check the tag matches package.json
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${RELEASE_TAG#v}"
           PKG="$(node -p "require('./package.json').version")"
           if [ "$TAG" != "$PKG" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            echo "::error::Tag $RELEASE_TAG does not match package.json version $PKG"
             exit 1
           fi
 
       - run: npm publish --access public --provenance
+
+      - name: Create the GitHub release and mark it latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --latest --draft=false
+          else
+            gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes --latest
+          fi
