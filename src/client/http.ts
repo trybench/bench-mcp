@@ -21,7 +21,7 @@ interface BenchApiErrorBody {
  * the cause rather than string-matching a message.
  */
 /** Identifies this MCP server to bench-api. */
-export const USER_AGENT = "bench-mcp/0.1.0";
+export const USER_AGENT = "bench-mcp/0.2.0";
 
 export class BenchApiError extends Error {
   constructor(
