@@ -7,7 +7,14 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AuthMode, CredentialSource } from "./client/http.js";
 import { API_KEY_PREFIX, type BaseConfig } from "./config.js";
-import { ICON_DARK, ICON_DARK_PATH, ICON_LIGHT, ICON_LIGHT_PATH } from "./icon.js";
+import {
+  FAVICON_PATHS,
+  ICON_BADGE,
+  ICON_DARK,
+  ICON_DARK_PATH,
+  ICON_LIGHT,
+  ICON_LIGHT_PATH,
+} from "./icon.js";
 import {
   CredentialRefreshError,
   exchangeForBenchToken,
@@ -94,6 +101,15 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
   // a point-in-time session count cannot. Aggregate only — no identity, and
   // /healthz is unauthenticated.
   const counts = { renewals: 0, challenges: 0, refusals: 0 };
+  // Which icon mechanism clients actually use, and whether they use one
+  // at all. `icons` on serverInfo is only in protocol revision
+  // 2025-11-25; a client on an earlier one may ignore it and look for a
+  // favicon instead — and until this was counted, neither could be told
+  // apart from the client simply showing a cached image.
+  const iconFetches: Record<string, number> = {};
+  // Protocol revision each client asks for, which decides whether the
+  // icons field means anything to it. Counts only — no identity.
+  const protocolVersions: Record<string, number> = {};
   const ttlMs = opts.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
   const verifier = opts.oauth ? new TokenVerifier(opts.oauth) : undefined;
 
@@ -134,21 +150,38 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
     // Unauthenticated on purpose: the ALB health check has no credential,
     // and this reveals nothing.
     if (url.pathname === "/healthz") {
-      writeJson(res, 200, { status: "ok", sessions: sessions.size, ...counts });
+      writeJson(res, 200, {
+        status: "ok",
+        sessions: sessions.size,
+        ...counts,
+        iconFetches,
+        protocolVersions,
+      });
       return;
     }
 
     // The mark a client shows next to this server's name. Unauthenticated
     // like /healthz — it is branding, and a client fetches it before it
     // has any credential to present.
-    if (url.pathname === ICON_LIGHT_PATH || url.pathname === ICON_DARK_PATH) {
+    if (
+      url.pathname === ICON_LIGHT_PATH ||
+      url.pathname === ICON_DARK_PATH ||
+      (FAVICON_PATHS as readonly string[]).includes(url.pathname)
+    ) {
+      iconFetches[url.pathname] = (iconFetches[url.pathname] ?? 0) + 1;
       res.writeHead(200, {
         "Content-Type": "image/svg+xml",
         // Immutable in practice: a changed mark gets a changed path,
         // since clients and directories cache icons aggressively.
         "Cache-Control": "public, max-age=86400",
       });
-      res.end(url.pathname === ICON_DARK_PATH ? ICON_DARK : ICON_LIGHT);
+      res.end(
+        (FAVICON_PATHS as readonly string[]).includes(url.pathname)
+          ? ICON_BADGE
+          : url.pathname === ICON_DARK_PATH
+            ? ICON_DARK
+            : ICON_LIGHT,
+      );
       return;
     }
 
@@ -280,6 +313,15 @@ export function createHttpTransportServer(opts: HttpServerOptions): Server {
         id: null,
       });
       return;
+    }
+
+    // Recorded before authentication: whether a client understands the
+    // icons field is a property of the client, and a request that never
+    // gets a credential still tells us which revision it speaks.
+    const requested = (body as { params?: { protocolVersion?: unknown } }).params?.protocolVersion;
+    if (typeof requested === "string") {
+      protocolVersions[requested] = (protocolVersions[requested] ?? 0) + 1;
+      log("initialize", { protocolVersion: requested });
     }
 
     // A credential is either a Bench API key or, when OAuth is enabled, an
