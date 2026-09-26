@@ -52,7 +52,7 @@ export function createServer(opts: CreateServerOptions): McpServer {
         "Manage systems, prompts, context, datasets, tests, criteria, reports and history with the corresponding tools. Use bench_list_operations for the complete HTTP/SDK contract. Upload tools take file content, never local file paths.",
         "For real app testing, install the Bench SDK in the user’s project, create an application adapter and run evaluateSystem/evaluate_system locally. Then publish its report. Simulation scores do not establish full runtime quality.",
         "The usual sequence:",
-        "1. bench_scan_repo (or bench_upload_prompts) to find the call sites.",
+        "1. bench_scan_repo, or, when you are working inside the repository, read it yourself and bench_register_prompts every prompt you find (path, line, exact text, owning agent) on the system; bench_upload_prompts remains for prompt files without a repository.",
         "2. bench_get_scan to choose which call site to evaluate.",
         "3. bench_list_systems and bench_get_system to select the recognized system. Improve context or the test library if the user requests it.",
         "4. bench_evaluation_allowance, then bench_start_system_evaluation with ai_system_id to bench every recognized prompt. For an explicit prompt subset use bench_start_evaluation. Confirm evaluation spend first. Runs proceed in the background without mandatory rubric review.",

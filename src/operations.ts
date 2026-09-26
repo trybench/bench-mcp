@@ -3168,6 +3168,96 @@ export const operationCatalog = {
     },
     {
       "auth": "credential",
+      "body": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "commit_sha": {
+            "description": "Optional 40-hex commit the paths and lines refer to",
+            "type": "string"
+          },
+          "model": {
+            "description": "Model these prompts run on; requires model-selection entitlement, otherwise omit",
+            "type": "string"
+          },
+          "prompts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "agent": {
+                  "description": "Name of the agent that sends this prompt, matching its runtime span name when instrumented",
+                  "type": "string"
+                },
+                "content": {
+                  "description": "Exact prompt template text as written in the source, variables unfilled",
+                  "type": "string"
+                },
+                "end_line": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "line": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "Short stable name, e.g. analyzer system prompt",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Repository-relative file path",
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "developer"
+                  ],
+                  "type": "string"
+                },
+                "variables": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "repo_full_name": {
+            "description": "owner/name of the repository the prompts live in",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Register prompts your coding agent found in the repository as evaluable prompt components of a system: file path, line, exact text, optional model and owning agent. Stored under the real repository and branch and merged with any existing scan; no GitHub connection or Bench scan is needed. Returns component ids to reference as bench.component_id on the model-call spans that send each prompt. Does not edit source code and does not start an evaluation.",
+      "id": "register_prompts",
+      "mcp": true,
+      "mcp_legacy": false,
+      "method": "POST",
+      "path": "/api/ai-systems/{id}/prompts",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": false
+    },
+    {
+      "auth": "credential",
       "description": "Remove system component. Uses the same validation and plan limits as Bench.",
       "id": "remove_system_component",
       "mcp": true,
