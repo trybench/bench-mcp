@@ -27,7 +27,8 @@ jobs:
         with:
           # Trusted publishing needs npm >= 11.5.1, which Node 24 ships with.
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+          # No registry-url: setup-node would write a placeholder NODE_AUTH_TOKEN
+          # into .npmrc and npm would try that instead of the OIDC exchange.
 
       - name: Use an npm new enough for trusted publishing
         run: npm install -g npm@^11 && npm --version
@@ -49,4 +50,4 @@ jobs:
             exit 1
           fi
 
-      - run: npm publish
+      - run: npm publish --access public --provenance
