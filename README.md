@@ -17,7 +17,7 @@ Keys are scoped down deliberately. By default a key reads only **your own** resu
 **Claude Code**
 
 ```bash
-claude mcp add bench --env BENCH_API_KEY=bench_sk_... -- npx -y @trybench/mcp
+claude mcp add bench --env BENCH_API_KEY=bench_sk_... -- npx -y @benchai/mcp
 ```
 
 **Claude Desktop** — in `claude_desktop_config.json`:
@@ -27,7 +27,7 @@ claude mcp add bench --env BENCH_API_KEY=bench_sk_... -- npx -y @trybench/mcp
   "mcpServers": {
     "bench": {
       "command": "npx",
-      "args": ["-y", "@trybench/mcp"],
+      "args": ["-y", "@benchai/mcp"],
       "env": {
         "BENCH_API_KEY": "bench_sk_..."
       }
