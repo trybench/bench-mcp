@@ -41,7 +41,7 @@ claude mcp add bench --env BENCH_API_KEY=bench_sk_... -- npx -y @benchai/mcp
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `BENCH_API_KEY` | yes (stdio) | — | Your Bench API key; must start with `bench_sk_` |
-| `BENCH_API_BASE_URL` | no | `https://api.trybench.ai` | Bench API to talk to; set `https://api.staging.usebench.ai` for staging or `http://localhost:8080` for a local API |
+| `BENCH_API_BASE_URL` | no | `https://api.usebench.ai` | Bench API to talk to; set `https://api.staging.usebench.ai` for staging or `http://localhost:8080` for a local API |
 | `BENCH_MCP_TIMEOUT_MS` | no | `120000` | Timeout for one HTTP call, not a whole evaluation; long stages run in the background and are polled |
 | `BENCH_MCP_TRANSPORT` | no | `stdio` | `stdio` for one local user, `http` for the hosted multi-tenant server |
 | `PORT` | no | `8080` | Listen port in `http` mode |
@@ -49,7 +49,7 @@ claude mcp add bench --env BENCH_API_KEY=bench_sk_... -- npx -y @benchai/mcp
 | `BENCH_MCP_AUTHKIT_DOMAIN` | no | — | WorkOS AuthKit issuer; enables OAuth in `http` mode together with `BENCH_MCP_RESOURCE_URL` |
 | `BENCH_MCP_RESOURCE_URL` | no | — | This server's canonical URL, the audience OAuth tokens must carry |
 
-Requests carry the `User-Agent` `bench-mcp/0.2.0`.
+Requests carry the `User-Agent` `bench-mcp/0.2.1`.
 
 ## How a session goes
 
