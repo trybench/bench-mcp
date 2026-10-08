@@ -2720,6 +2720,7 @@ export const operationCatalog = {
                 "type": "string"
               },
               "id": {
+                "description": "Starts with manual- (for example manual-purpose). Reuse the same id to update the source. Other ids belong to connector imports and are refused.",
                 "type": "string"
               },
               "kind": {
@@ -2751,7 +2752,7 @@ export const operationCatalog = {
         ],
         "type": "object"
       },
-      "description": "Create or update versioned system understanding, feedback, a golden case or criterion. Read the current context version first and provide expected_version. Preserve user-supplied expected values; do not infer business policy from observed output.",
+      "description": "Create or update versioned system understanding, feedback, a golden case or criterion. Read the current context version first and provide expected_version. Give each source an id that starts with manual- (for example manual-purpose) and reuse it to update that source; other ids belong to connector imports and are refused. Preserve user-supplied expected values; do not infer business policy from observed output.",
       "id": "put_context_source",
       "mcp": true,
       "mcp_legacy": false,
