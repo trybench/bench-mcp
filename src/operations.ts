@@ -2720,6 +2720,7 @@ export const operationCatalog = {
                 "type": "string"
               },
               "id": {
+                "description": "Starts with manual- (for example manual-purpose). Reuse the same id to update the source. Other ids belong to connector imports and are refused.",
                 "type": "string"
               },
               "kind": {
@@ -2751,7 +2752,7 @@ export const operationCatalog = {
         ],
         "type": "object"
       },
-      "description": "Create or update versioned system understanding, feedback, a golden case or criterion. Read the current context version first and provide expected_version. Preserve user-supplied expected values; do not infer business policy from observed output.",
+      "description": "Create or update versioned system understanding, feedback, a golden case or criterion. Read the current context version first and provide expected_version. Give each source an id that starts with manual- (for example manual-purpose) and reuse it to update that source; other ids belong to connector imports and are refused. Preserve user-supplied expected values; do not infer business policy from observed output.",
       "id": "put_context_source",
       "mcp": true,
       "mcp_legacy": false,
@@ -3237,12 +3238,470 @@ export const operationCatalog = {
         },
         "type": "object"
       },
-      "description": "Register prompts your coding agent found in the repository as evaluable prompt components of a system: file path, line, exact text, optional model and owning agent. Stored under the real repository and branch and merged with any existing scan; no GitHub connection or Bench scan is needed. Returns component ids to reference as bench.component_id on the model-call spans that send each prompt. Does not edit source code and does not start an evaluation.",
+      "description": "Deprecated: use register_calls, which registers one entry per model call. Register prompts your coding agent found in the repository as evaluable prompt components of a system: file path, line, exact text, optional model and owning agent. Stored under the real repository and branch and merged with any existing scan; no GitHub connection or Bench scan is needed. Returns component ids to reference as bench.component_id on the model-call spans that send each prompt. Does not edit source code and does not start an evaluation.",
       "id": "register_prompts",
       "mcp": true,
       "mcp_legacy": false,
       "method": "POST",
       "path": "/api/ai-systems/{id}/prompts",
+      "path_parameters": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "query": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "read_only": false
+    },
+    {
+      "auth": "credential",
+      "body": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "calls": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "conditions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "code_ref": {
+                        "description": "The code that decides it, e.g. \"slot\" in present_types",
+                        "type": "string"
+                      },
+                      "description": {
+                        "description": "Plain words: when is this fragment sent",
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "description",
+                      "code_ref"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "configurations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "fallback": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "provenance": {
+                        "enum": [
+                          "declared",
+                          "observed"
+                        ],
+                        "type": "string"
+                      },
+                      "provider": {
+                        "type": "string"
+                      },
+                      "settings": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "declared": {
+                            "description": "Values written in the code",
+                            "type": "object"
+                          },
+                          "effective": {
+                            "description": "Values the provider call really gets, e.g. after a wrapper drops or adds options",
+                            "type": "object"
+                          },
+                          "effective_provenance": {
+                            "enum": [
+                              "declared",
+                              "observed",
+                              "unknown"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "source": {
+                        "description": "Exactly one configuration has source code: what the code does today",
+                        "enum": [
+                          "code",
+                          "suggested"
+                        ],
+                        "type": "string"
+                      },
+                      "tool_choice": {
+                        "type": "string"
+                      },
+                      "tools": {
+                        "items": {
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "source",
+                      "model"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "constraints": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "conditions": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "source": {
+                        "enum": [
+                          "code",
+                          "user",
+                          "observed"
+                        ],
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "exactly_one",
+                          "not_both",
+                          "implies"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "conditions",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "fragments": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "group": {
+                        "description": "Id of a group whose header and separator the code emits around this fragment",
+                        "type": "string"
+                      },
+                      "id": {
+                        "description": "Identifier, unique in the call; used by `when` and by bound variables",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "description": "text = prompt text; runtime_value = a message with no source text that the test case supplies; constant = a value bound to a variable of another fragment, never sent on its own",
+                        "enum": [
+                          "text",
+                          "runtime_value",
+                          "constant"
+                        ],
+                        "type": "string"
+                      },
+                      "message_group": {
+                        "description": "Fragments with the same message_group form one message; system fragments without one form the single system message",
+                        "type": "string"
+                      },
+                      "role": {
+                        "enum": [
+                          "system",
+                          "developer",
+                          "user",
+                          "assistant"
+                        ],
+                        "type": "string"
+                      },
+                      "source": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "file": {
+                            "type": "string"
+                          },
+                          "line": {
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "text": {
+                        "description": "The string the model receives with every variable written as {name}. Supply the resolved string (what the code produces), not the source code that builds it. Omit for runtime_value.",
+                        "type": "string"
+                      },
+                      "text_provenance": {
+                        "description": "resolved_string = you ran or evaluated the code to get the text; source_text = read from the source without running it",
+                        "enum": [
+                          "resolved_string",
+                          "source_text"
+                        ],
+                        "type": "string"
+                      },
+                      "variables": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "bound_to_fragment": {
+                              "description": "Id of a constant fragment whose text is this variable's value",
+                              "type": "string"
+                            },
+                            "expr": {
+                              "description": "The expression exactly as written in the code, e.g. item.name or row[0]",
+                              "type": "string"
+                            },
+                            "format_hint": {
+                              "description": "What the value looks like, from running the code",
+                              "type": "string"
+                            },
+                            "kind": {
+                              "enum": [
+                                "simple",
+                                "attribute",
+                                "index",
+                                "expression",
+                                "converted"
+                              ],
+                              "type": "string"
+                            },
+                            "name": {
+                              "description": "Placeholder name used in the text, an identifier",
+                              "type": "string"
+                            },
+                            "source": {
+                              "enum": [
+                                "literal",
+                                "code",
+                                "command_output",
+                                "runtime_input"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "expr"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "when": {
+                        "description": "Inclusion rule: condition ids joined with and, or, not and parentheses. Omit when the fragment is always sent.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "role",
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "groups": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "header": {
+                        "description": "Text emitted before the first included fragment of the group",
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "separator": {
+                        "description": "Text emitted between included fragments of the group",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "key": {
+                  "description": "Code-derived identity: <repo-relative file>::<qualified function>#<ordinal of the model call in that function>. Never a line number or a name you chose.",
+                  "type": "string"
+                },
+                "key_source": {
+                  "description": "ast = derived by parsing the code; agent = derived by hand",
+                  "enum": [
+                    "ast",
+                    "agent"
+                  ],
+                  "type": "string"
+                },
+                "location": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "file": {
+                      "type": "string"
+                    },
+                    "function": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": {
+                  "description": "Short display name, e.g. recipe extraction",
+                  "type": "string"
+                },
+                "notes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "output_format": {
+                  "type": "object"
+                },
+                "scope": {
+                  "enum": [
+                    "production",
+                    "offline_script"
+                  ],
+                  "type": "string"
+                },
+                "shape": {
+                  "description": "Fingerprint of the call (argument names, model expression, enclosing function parameters), required when key_source is ast; lets Bench recognize the call after a rename or move",
+                  "type": "string"
+                },
+                "slots": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "after_fragment": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "history",
+                          "injected_context"
+                        ],
+                        "type": "string"
+                      },
+                      "max_messages": {
+                        "type": "integer"
+                      },
+                      "role": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "verification": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "evidence": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "method": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "states_checked": {
+                          "type": "integer"
+                        },
+                        "states_matched": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "level": {
+                      "description": "agent_verified = you ran the code that builds the prompt for sample inputs and every checked state matched the registered fragments; declared_only = read from code, not run; evidence_lacking = part of the text could not be resolved",
+                      "enum": [
+                        "agent_verified",
+                        "declared_only",
+                        "evidence_lacking"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "level"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "key",
+                "name",
+                "scope",
+                "configurations",
+                "fragments",
+                "verification"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "commit_sha": {
+            "description": "Optional 40-hex commit the calls were read at",
+            "type": "string"
+          },
+          "repo_full_name": {
+            "description": "owner/name of the repository the calls live in",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_full_name",
+          "branch",
+          "calls"
+        ],
+        "type": "object"
+      },
+      "description": "Register the model calls your coding agent found in the repository, one entry per call (one request sent to a model), not per prompt. A call lists its messages as fragments (system text, user templates, constants, runtime values), the model configuration the code uses, the conditions that decide which fragments are sent, and how well you verified the text. Prefer the resolved string over source code: run or evaluate the code that builds the prompt for sample inputs and register what it produces with variables written as {name}; mark verification agent_verified only when every checked state matched. Calls are identified by a code-derived key, so registering again keeps the same call after a rename or move; a doubtful match gets a new id; calls missing from a later registration are kept and labelled not seen. Returns one component id per call (shown as Call #id) to reference as bench.component_id on the spans of that call. Does not edit source code and does not start an evaluation. Replaces register_prompts, which is deprecated.",
+      "id": "register_calls",
+      "mcp": true,
+      "mcp_legacy": false,
+      "method": "POST",
+      "path": "/api/ai-systems/{id}/calls",
       "path_parameters": {
         "id": {
           "minLength": 1,
