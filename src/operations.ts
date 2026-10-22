@@ -3354,6 +3354,7 @@ export const operationCatalog = {
                         "type": "string"
                       },
                       "tools": {
+                        "description": "Tools this call sends. A tool may add output_schema, a JSON Schema object (type, properties) of its output; Bench checks simulated replies against it.",
                         "items": {
                           "type": "object"
                         },
