@@ -47,6 +47,37 @@ describe('headless operations', () => {
       }
     } finally {await client.close();await server.close();}
   });
+  it('accepts any extra key inside a registered tool, including output_schema, and forwards it unchanged',async()=>{
+    // The catalog types a tool as {type: object}; bench-api alone decides whether an output_schema is usable
+    // and answers with a per-call warning, so MCP must not reject a value it does not understand.
+    const tools=[
+      {name:'good',description:'d',input_schema:{type:'object',properties:{city:{type:'string'}}},output_schema:{type:'object',properties:{temperature:{type:'number'}},required:['temperature']}},
+      {name:'flat',output_schema:{temperature:'number',conditions:'string'}},
+      {name:'text',output_schema:'not a schema'},
+      {type:'function',function:{name:'shaped',parameters:{type:'object',properties:{}},output_schema:{type:'object',properties:{}}}},
+      {name:'extra','x-anything':[1,{a:null}]},
+    ];
+    const body={repo_full_name:'acme/docs',branch:'main',calls:[{key:'svc/a.py::run#0',key_source:'ast',shape:'S1',name:'run',scope:'production',
+      configurations:[{source:'code',model:'gpt-x',tools}],
+      fragments:[{id:'sys',role:'system',kind:'text',text:'You help.'}],verification:{level:'declared_only'}}]};
+    let sent:unknown;
+    const {client,server}=await connect(async(_input,init)=>{sent=JSON.parse(init!.body as string);return new Response('{"calls":[]}',{headers:{'Content-Type':'application/json'}});});
+    try{
+      const result=await client.callTool({name:'bench_register_calls',arguments:{path:{id:42},body}});
+      expect(result.isError).not.toBe(true);
+      expect(sent).toEqual(body);
+    }finally{await client.close();await server.close();}
+  });
+  it('tells the agent what output_schema is, in the description of a call\'s tools',async()=>{
+    const {client,server}=await connect(async()=>new Response('{}'));
+    try{
+      const {tools}=await client.listTools();
+      const register=tools.find(tool=>tool.name==='bench_register_calls');
+      const described=JSON.stringify(register!.inputSchema);
+      expect(described).toContain('output_schema');
+      expect(described).toContain('Bench checks simulated replies against it');
+    }finally{await client.close();await server.close();}
+  });
   it('uploads binary datasets and JSON mappings as multipart, preserving bytes',async()=>{
     let received:FormData|undefined;
     const {client,server}=await connect(async(input,init)=>{
