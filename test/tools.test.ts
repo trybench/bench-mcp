@@ -669,6 +669,21 @@ describe("system context tools", () => {
     expect(resultText(result as never)).toContain(code === "key_evaluations_exhausted" ? "key owner" : "bench_evaluation_allowance");
     expect(api.calls).toHaveLength(1);
   });
+  it("does not retry a Free whole-system start rejected for having more than one call", async () => {
+    api.on("POST", "/api/evaluation-runs/system", { error: { code: "free_plan_one_call", message: "Free benches one call at a time." } }, 403);
+    const client = await connect(api);
+    const result = await client.callTool({ name: "bench_start_system_evaluation", arguments: { ai_system_id: 7 } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({error:{code:"free_plan_one_call",retryable:false}});
+    expect(api.calls).toHaveLength(1);
+  });
+  it("tells agents the Free one-call rule in the system bench description", async () => {
+    const client = await connect(api);
+    const {tools} = await client.listTools();
+    const description = tools.find(t => t.name === "bench_start_system_evaluation")?.description ?? "";
+    expect(description).toContain("free_plan_one_call");
+    expect(description).not.toContain("Free includes one complete system bench");
+  });
   it("marks payment and destructive tools as writes requiring user authorization", async () => {
     const client = await connect(api);
     const {tools} = await client.listTools();

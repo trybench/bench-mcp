@@ -82,7 +82,7 @@ export const startEvaluationInput = {
       }),
     )
     .min(1)
-    .describe("Selected call sites only. For Free whole-system coverage use bench_start_system_evaluation; this legacy prompt-selection tool accepts one prompt on Free."),
+    .describe("Selected call sites only. Free benches one call per evaluation, so this legacy prompt-selection tool accepts one prompt on Free; bench_start_system_evaluation is rejected on Free for a system with more than one call."),
   generate_context: z
     .boolean()
     .optional()
