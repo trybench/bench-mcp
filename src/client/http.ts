@@ -49,6 +49,7 @@ export class BenchApiError extends Error {
       "growth_required",
       "context_changed",
       "free_plan_single_prompt",
+      "free_plan_one_call",
       "session_required",
       "account_authorization_required",
       "source_authorization_required",
