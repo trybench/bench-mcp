@@ -51,6 +51,8 @@ async function connect(api: StubApi): Promise<Client> {
     baseUrl: "https://api.test.invalid",
     apiKey: "bench_sk_testkey",
     fetchImpl: api.fetch,
+    // The suite covers the full tool set; hiding is tested below.
+    githubScanning: true,
   });
   const client = new Client({ name: "test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -701,5 +703,69 @@ describe("system context tools", () => {
     expect(result.isError).not.toBe(true);
     expect(api.calls).toHaveLength(1);
     expect(api.calls[0]?.url).toBe("/api/evaluation-runs/42/fix-brief");
+  });
+});
+
+describe("GitHub scanning hidden (the default)", () => {
+  async function connectHidden(api: StubApi, extra: { githubScanning?: boolean } = {}) {
+    const server = createServer({
+      baseUrl: "https://api.test.invalid",
+      apiKey: "bench_sk_testkey",
+      fetchImpl: api.fetch,
+      ...extra,
+    });
+    const client = new Client({ name: "test", version: "0.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    return client;
+  }
+
+  it("hides only the tools that start or refresh a scan", async () => {
+    const client = await connectHidden(new StubApi());
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    for (const hidden of [
+      "bench_scan_repo",
+      "bench_get_repository_refresh",
+      "bench_set_repository_refresh",
+    ])
+      expect(names).not.toContain(hidden);
+    // The GitHub connection, PRs, stored-scan reads and upload stay.
+    for (const kept of [
+      "bench_connect_github",
+      "bench_finish_github_connection",
+      "bench_list_repos",
+      "bench_open_prompt_pr",
+      "bench_get_scan",
+      "bench_set_prompt_models",
+      "bench_upload_prompts",
+      "bench_register_calls",
+    ])
+      expect(names).toContain(kept);
+  });
+
+  it("tells the agent to register calls itself and not to scan", async () => {
+    const client = await connectHidden(new StubApi());
+    const instructions = client.getInstructions() ?? "";
+    expect(instructions).toContain("bench_register_calls");
+    expect(instructions).toContain("GitHub repository scanning is not available right now");
+    expect(instructions).not.toContain("1. bench_scan_repo");
+  });
+
+  it("does not point the agent at the hidden scan tool", async () => {
+    const hidden = await connectHidden(new StubApi());
+    const rerun = (await hidden.listTools()).tools.find((t) => t.name === "bench_rerun_evaluation");
+    expect(rerun?.description).not.toContain("bench_scan_repo");
+    expect(rerun?.description).toContain("bench_register_calls");
+    const on = await connectHidden(new StubApi(), { githubScanning: true });
+    const rerunOn = (await on.listTools()).tools.find((t) => t.name === "bench_rerun_evaluation");
+    expect(rerunOn?.description).toContain("re-scan with bench_scan_repo");
+  });
+
+  it("brings the scan tools and wording back when enabled", async () => {
+    const client = await connectHidden(new StubApi(), { githubScanning: true });
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain("bench_scan_repo");
+    expect(names).toContain("bench_get_repository_refresh");
+    expect(client.getInstructions()).toContain("1. bench_scan_repo");
   });
 });

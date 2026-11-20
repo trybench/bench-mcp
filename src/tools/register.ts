@@ -2,11 +2,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { BenchApiError, type BenchClient } from "../client/http.js";
+import { GITHUB_SCAN_TOOLS } from "../githubScanning.js";
 import type { ZodRawShape } from "../schemas.js";
 
 /** Everything a tool handler needs. */
 export interface ToolContext {
   client: BenchClient;
+  /** Whether the tools that start a GitHub scan are offered. */
+  githubScanning: boolean;
 }
 
 /**
@@ -31,6 +34,8 @@ export function registerTool(
     handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;
   },
 ): void {
+  // Hidden until Stage 1 is reliable (see githubScanning.ts).
+  if (!context.githubScanning && GITHUB_SCAN_TOOLS.has(definition.name)) return;
   server.registerTool(
     definition.name,
     {
