@@ -81,6 +81,8 @@ export interface BenchClientOptions {
   apiKey: CredentialSource;
   timeoutMs?: number;
   authMode?: AuthMode;
+  /** Whether error hints may point at bench_scan_repo. Default false. */
+  githubScanning?: boolean;
   /** Injectable for tests; defaults to the global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -103,6 +105,7 @@ export class BenchClient {
   private readonly baseUrl: string;
   private readonly apiKey: CredentialSource;
   private readonly authMode: AuthMode;
+  private readonly githubScanning: boolean;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
@@ -112,6 +115,7 @@ export class BenchClient {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.apiKey = opts.apiKey;
     this.authMode = opts.authMode ?? "api_key";
+    this.githubScanning = opts.githubScanning ?? false;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   }
@@ -261,7 +265,9 @@ export class BenchClient {
       case "installation_not_found":
         return `${message}. Connect a GitHub account in Bench first, or use bench_upload_prompts instead.`;
       case "scan_not_found":
-        return `${message}. Call bench_scan_repo for this repo and branch first.`;
+        return this.githubScanning
+          ? `${message}. Call bench_scan_repo for this repo and branch first.`
+          : `${message}. Register this system's model calls with bench_register_calls first, or use bench_upload_prompts.`;
       default:
         return message;
     }

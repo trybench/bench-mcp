@@ -5,7 +5,7 @@ import { createServer } from '../src/server.js';
 import { operationCatalog } from '../src/operations.js';
 
 async function connect(fetchImpl: typeof fetch) {
-  const server = createServer({baseUrl:'https://api.test.invalid',apiKey:'bench_sk_fixture',fetchImpl});
+  const server = createServer({baseUrl:'https://api.test.invalid',apiKey:'bench_sk_fixture',fetchImpl,githubScanning:true});
   const client = new Client({name:'headless-test',version:'1'});
   const [a,b] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(a),server.connect(b)]);

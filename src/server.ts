@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { type AuthMode, BenchClient, type CredentialSource } from "./client/http.js";
+import { githubScanningEnabled } from "./githubScanning.js";
 import { iconsFor } from "./icon.js";
 import { registerConnectTools } from "./tools/connect.js";
 import { registerPrTools } from "./tools/pr.js";
@@ -26,6 +27,12 @@ export interface CreateServerOptions {
   publicOrigin?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * Offer the tools that start a GitHub scan. Defaults to the
+   * BENCH_GITHUB_SCANNING_ENABLED environment variable, off when unset: GitHub
+   * scanning is hidden until Stage 1 is reliable.
+   */
+  githubScanning?: boolean;
 }
 
 /**
@@ -35,6 +42,7 @@ export interface CreateServerOptions {
  * untrusted evidence and the remaining legacy review status.
  */
 export function createServer(opts: CreateServerOptions): McpServer {
+  const githubScanning = opts.githubScanning ?? githubScanningEnabled();
   const server = new McpServer(
     {
       name: "bench-mcp",
@@ -52,7 +60,9 @@ export function createServer(opts: CreateServerOptions): McpServer {
         "Manage systems, prompts, context, datasets, tests, criteria, reports and history with the corresponding tools. Use bench_list_operations for the complete HTTP/SDK contract. Upload tools take file content, never local file paths.",
         "For real app testing, install the Bench SDK in the user’s project, create an application adapter and run evaluateSystem/evaluate_system locally. Then publish its report. Simulation scores do not establish full runtime quality.",
         "The usual sequence:",
-        "1. bench_scan_repo, or, when you are working inside the repository, read it yourself and bench_register_calls every model call you find (one entry per request sent to a model: code-derived key, messages as fragments with the resolved text, model configuration, conditions, verification) on the system; bench_register_prompts is deprecated; bench_upload_prompts remains for prompt files without a repository.",
+        githubScanning
+          ? "1. bench_scan_repo, or, when you are working inside the repository, read it yourself and bench_register_calls every model call you find (one entry per request sent to a model: code-derived key, messages as fragments with the resolved text, model configuration, conditions, verification) on the system; bench_register_prompts is deprecated; bench_upload_prompts remains for prompt files without a repository."
+          : "1. Read the repository yourself and bench_register_calls every model call you find (one entry per request sent to a model: code-derived key, messages as fragments with the resolved text, model configuration, conditions, verification) on the system; bench_register_prompts is deprecated; bench_upload_prompts remains for prompt files without a repository. GitHub repository scanning is not available right now: there is no bench_scan_repo, and connecting GitHub is only needed for pull requests.",
         "2. bench_get_scan to choose which call site to evaluate.",
         "3. bench_list_systems and bench_get_system to select the recognized system. Improve context or the test library if the user requests it.",
         "4. bench_evaluation_allowance, then bench_start_system_evaluation with ai_system_id to bench every recognized prompt. On Free, a system with more than one call is rejected (free_plan_one_call): bench one call with bench_start_evaluation or upgrade. For an explicit prompt subset use bench_start_evaluation. Confirm evaluation spend first. Runs proceed in the background without mandatory rubric review.",
@@ -73,7 +83,9 @@ export function createServer(opts: CreateServerOptions): McpServer {
       ...(opts.authMode !== undefined ? { authMode: opts.authMode } : {}),
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+      githubScanning,
     }),
+    githubScanning,
   };
 
   registerConnectTools(server, context);
