@@ -545,6 +545,8 @@ describe("harness findings", () => {
     const baseline = tools.find((t) => t.name === "bench_get_baseline");
 
     expect(baseline?.description).toContain("model_substituted");
+    expect(baseline?.description).toContain("model_fallback");
+    expect(baseline?.description).toContain("stand-in");
     expect(baseline?.description).toContain("unscored_count");
   });
 
