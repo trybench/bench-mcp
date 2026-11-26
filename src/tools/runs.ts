@@ -12,6 +12,9 @@ import { registerTool, type ToolContext } from "./register.js";
 
 /** Background runs proceed directly; the review tool supports legacy paused runs. */
 export function registerRunTools(server: McpServer, context: ToolContext): void {
+  const rescan = context.githubScanning
+    ? "re-scan with bench_scan_repo"
+    : "register the changed calls again with bench_register_calls";
   registerTool(server, context, {
     name: "bench_start_system_evaluation",
     title: "Bench a complete AI system",
@@ -92,7 +95,7 @@ export function registerRunTools(server: McpServer, context: ToolContext): void 
     name: "bench_rerun_evaluation",
     title: "Re-run an evaluation after changing a prompt",
     description:
-      "Re-score a prompt against the latest scan of its repository ; the loop after you act on a recommendation. Push the change first: this reads the repository, not your working copy, so re-scan with bench_scan_repo before re-running.\n\nChanged stages run again. A reused baseline consumes no additional evaluation, but starting any new run requires available allowance. New runs proceed without mandatory rubric review. Read bench_evaluation_allowance first and confirm any new spend.",
+      `Re-score a prompt against the latest scan of its repository ; the loop after you act on a recommendation. Push the change first: this reads the repository, not your working copy, so ${rescan} before re-running.\n\nChanged stages run again. A reused baseline consumes no additional evaluation, but starting any new run requires available allowance. New runs proceed without mandatory rubric review. Read bench_evaluation_allowance first and confirm any new spend.`,
     inputSchema: rerunEvaluationInput,
     handler: async (args, ctx) =>
       ctx.client.request(`/api/evaluation-runs/${args.run_id as number}/rerun`, {
